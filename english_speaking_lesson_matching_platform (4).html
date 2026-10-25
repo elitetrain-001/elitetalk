@@ -1,0 +1,3212 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>外師口說課媒合平台 | TalkMaster Lesson Platform</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Chart.js for Visual Statistics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Supabase JS Client library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans TC"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#eef8ff',
+              100: '#d8efff',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans antialiased selection:bg-sky-100 selection:text-sky-800">
+
+  <!-- Fullscreen Mandatory Cloud Data Loader (確保讀取最新資料後再打開) -->
+  <div id="mandatory-cloud-loader" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-md text-white transition-opacity duration-300">
+    <div class="p-8 max-w-sm w-full mx-4 bg-slate-800/90 rounded-3xl border border-slate-700/80 shadow-2xl flex flex-col items-center text-center">
+      <div class="relative w-16 h-16 mb-5">
+        <div class="absolute inset-0 rounded-full border-4 border-sky-500/20"></div>
+        <div class="absolute inset-0 rounded-full border-4 border-sky-400 border-t-transparent animate-spin"></div>
+        <div class="absolute inset-2 rounded-full border-4 border-emerald-400 border-b-transparent animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+      </div>
+      <h3 class="text-base font-black text-slate-100 tracking-wide">全分校雲端記憶連線中</h3>
+      <p id="loader-status-detail" class="text-xs text-sky-300 font-medium mt-2 leading-relaxed">正在從中央資料庫載入最新外師課表與媒合名單...</p>
+      
+      <div class="mt-6 w-full bg-slate-700/60 rounded-full h-1.5 overflow-hidden">
+        <div id="loader-progress-bar" class="bg-gradient-to-r from-sky-400 to-emerald-400 h-1.5 rounded-full w-2/3 animate-pulse"></div>
+      </div>
+      
+      <button id="loader-force-enter-btn" onclick="dismissLoaderForcefully()" class="hidden mt-5 px-4 py-1.5 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-700/80 hover:bg-slate-700 rounded-xl transition border border-slate-600">
+        網路較慢，直接進入系統
+      </button>
+    </div>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Header Navigation -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <!-- Brand Title (Logo Removed) -->
+        <div class="flex items-center gap-3">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <h1 class="text-base sm:text-lg font-black text-slate-900 leading-tight">精英國際教育EliteTalk外師媒合平台</h1>
+              <!-- Cloud Sync Status Badge & Button -->
+              <button id="cloud-sync-status-btn" onclick="openCloudModal()" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition shadow-sm">
+                <span id="cloud-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="cloud-status-text">各分校共享記憶已連線 (即時同步中)</span>
+              </button>
+              <!-- Live Data Version & Timestamp Badge -->
+              <span id="live-version-badge" class="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 text-slate-600 border border-slate-200" title="目前資料庫最新時間序版本">
+                最新版本: 讀取中...
+              </span>
+              <!-- Instant Cloud Refresh Shortcut -->
+              <button onclick="pullCloudData(true)" title="立即從雲端拉取全分校最新資料" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <span>立即同步</span>
+              </button>
+              <!-- Supabase Production DB Configuration -->
+              <button onclick="openDatabaseConfigModal()" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100 transition shadow-sm" title="設定全分校永久專屬資料庫">
+                <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                <span>正式資料庫設定</span>
+              </button>
+              <!-- Deploy Button -->
+              <button onclick="openDeployModal()" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                <span>免費架設教學</span>
+              </button>
+            </div>
+            <p class="text-[11px] sm:text-xs text-slate-500 font-semibold">Elite International Education · Multi-Campus Distributed Cloud Engine</p>
+          </div>
+        </div>
+
+        <!-- Mode Switcher Tabs -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto">
+          <button id="btn-tab-student" onclick="switchView('student')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all shadow-sm bg-white text-sky-700 whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            <span>學生預約 / 媒合</span>
+          </button>
+          
+          <button id="btn-tab-mybookings" onclick="switchView('mybookings')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+            </svg>
+            <span>查詢 / 學生退選</span>
+          </button>
+
+          <button id="btn-tab-admin" onclick="switchView('admin')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span>外師排班管理</span>
+          </button>
+
+          <button id="btn-tab-stats" onclick="switchView('stats')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            <span>統計報表與下載</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW AREA -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- COMMON: CALENDAR & FUTURE WEEK SELECTOR (Shown on Student & Admin view) -->
+    <section id="calendar-header-banner" class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-sm mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="p-3 bg-sky-50 text-sky-600 rounded-xl border border-sky-100 flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-sky-700 bg-sky-100/70 px-2 py-0.5 rounded-full">即時結合真實日曆</span>
+            <span id="current-today-badge" class="text-xs text-slate-500 font-medium">今天：2026/10/22</span>
+          </div>
+          <h2 id="calendar-current-week-label" class="text-lg sm:text-xl font-bold text-slate-900 mt-0.5">2026 年 第 44 週 (10/26 ~ 10/30)</h2>
+        </div>
+      </div>
+
+      <!-- Week Controls & Date Picker -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="navigateWeek(-1)" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          上一週
+        </button>
+
+        <button onclick="jumpToCurrentWeek()" class="px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-xl text-xs sm:text-sm font-bold transition">
+          回到本週
+        </button>
+
+        <button onclick="navigateWeek(1)" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1">
+          下一週
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </button>
+
+        <!-- Direct Date Selector to jump into any future week -->
+        <div class="relative ml-0 sm:ml-2">
+          <input type="date" id="calendar-date-picker" onchange="onDatePickerChanged(event)" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs sm:text-sm text-slate-700 font-medium focus:ring-2 focus:ring-sky-500 focus:outline-none">
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 1: STUDENT VIEW (學生預約 / 媒合) -->
+    <!-- ========================================== -->
+    <section id="view-student" class="space-y-6">
+      <!-- Weekday Tabs for Student -->
+      <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <div id="student-weekday-tabs-container" class="flex gap-2 min-w-max sm:min-w-0"></div>
+      </div>
+
+      <!-- Filters & Counter Bar -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <h3 id="current-day-label" class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-sky-500"></span>
+            今日口說課表
+          </h3>
+          <span id="slots-count-badge" class="text-xs bg-sky-50 text-sky-700 px-2.5 py-1 rounded-full font-bold border border-sky-100">載入中...</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <!-- Filter by Teacher -->
+          <div class="flex-1 sm:flex-initial">
+            <select id="student-filter-teacher" onchange="renderStudentSchedule()" class="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+              <option value="ALL">全部外師 (All Teachers)</option>
+            </select>
+          </div>
+
+          <!-- Filter by Availability -->
+          <div class="flex-1 sm:flex-initial">
+            <select id="student-filter-status" onchange="renderStudentSchedule()" class="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+              <option value="ALL">全部時段狀態</option>
+              <option value="AVAILABLE" selected>僅顯示有名額 (尚可預約)</option>
+              <option value="FULL">顯示已額滿 (3/3)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slot Cards Grid -->
+      <div id="student-slots-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+
+      <!-- Empty State -->
+      <div id="student-empty-state" class="hidden bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-sm">
+        <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h4 class="text-base font-bold text-slate-800">該日目前尚無符合的外師時段開放</h4>
+        <p class="text-xs text-slate-500 mt-1">請嘗試切換上方星期分頁，或挑選其他外師篩選條件。</p>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 2: MY BOOKINGS / STUDENT CANCEL (查詢 / 退選) -->
+    <!-- ========================================== -->
+    <section id="view-mybookings" class="hidden space-y-5">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">學生預約查詢與退選專區</h3>
+          <p class="text-xs text-slate-500 mt-0.5">可輸入學生中文姓名、英文名字、所屬分校或負責中師，即時辦理退選並自動釋出名額。</p>
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <input type="text" id="mybooking-search-input" onkeyup="if(event.key==='Enter')searchStudentBookings()" placeholder="輸入學生姓名或分校..." class="w-full sm:w-64 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500">
+          <button onclick="searchStudentBookings()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition flex-shrink-0">
+            查詢
+          </button>
+          <button onclick="listAllUpcomingBookings()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex-shrink-0">
+            顯示全部
+          </button>
+        </div>
+      </div>
+
+      <!-- Booking List Table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <span id="mybooking-count-badge" class="text-xs font-bold text-slate-700">共 0 堂課</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="py-3 px-4">上課日期與時段</th>
+                <th class="py-3 px-4">外師姓名</th>
+                <th class="py-3 px-4">學生姓名</th>
+                <th class="py-3 px-4">所屬分校 / 聯絡中師</th>
+                <th class="py-3 px-4">該堂人數</th>
+                <th class="py-3 px-4 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody id="mybooking-table-body" class="divide-y divide-slate-100 text-slate-700">
+              <tr>
+                <td colspan="6" class="py-8 text-center text-slate-400">載入中...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 3: ADMIN VIEW (外師排班管理) -->
+    <!-- ========================================== -->
+    <section id="view-admin" class="hidden space-y-6">
+      <!-- Admin Teacher Bar -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-4 w-full md:w-auto">
+          <img id="admin-profile-avatar" src="https://placehold.co/100x100/0284c7/ffffff?text=Teacher" alt="Avatar" class="w-14 h-14 rounded-full object-cover border-2 border-indigo-100 shadow-sm flex-shrink-0">
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="admin-profile-name" class="text-base font-bold text-slate-900">載入中...</h3>
+              <span id="admin-profile-nationality" class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">專任師資</span>
+            </div>
+            <p id="admin-profile-intro" class="text-xs text-slate-500 mt-1 max-w-md line-clamp-1">尚未填寫簡介。</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2.5 w-full md:w-auto justify-end">
+          <div class="flex items-center gap-1.5">
+            <label class="text-xs font-bold text-slate-600 whitespace-nowrap">切換外師：</label>
+            <select id="admin-teacher-select" onchange="onAdminTeacherChanged()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"></select>
+          </div>
+          <button onclick="openAddTeacherModal()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 whitespace-nowrap shadow-sm shadow-emerald-600/20">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            新增外師
+          </button>
+          <button onclick="openTeacherModal()" class="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1 whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+            編輯資料
+          </button>
+          <button type="button" onclick="promptDeleteCurrentTeacher()" class="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center gap-1 whitespace-nowrap" title="刪除目前外師">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            刪除
+          </button>
+        </div>
+      </div>
+
+      <!-- Admin Weekday Tabs -->
+      <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <div id="admin-weekday-tabs-container" class="flex gap-2 min-w-max sm:min-w-0"></div>
+      </div>
+
+      <!-- Admin Shift Matrix -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-3">
+          <div>
+            <h4 id="admin-matrix-title" class="text-sm font-bold text-slate-900">排班設定矩陣</h4>
+            <p class="text-xs text-slate-500 mt-0.5">點擊時段按鈕即可切換開課狀態（綠色代表已有人報名，藍色代表開放報名，灰色代表未開課）。</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="bulkToggleAdminDay(true)" class="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-xs font-bold transition">全開今日時段</button>
+            <button type="button" onclick="bulkToggleAdminDay(false)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition">關閉無人時段</button>
+          </div>
+        </div>
+
+        <div id="admin-slots-matrix" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+      </div>
+
+      <!-- Admin Enrolled Student Roster Table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <h4 class="text-sm font-bold text-slate-900">本週外師已報名學生總名冊</h4>
+          <span id="admin-total-enrolled-badge" class="text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200">共 0 位學生報名</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="py-3 px-4">時段</th>
+                <th class="py-3 px-4">中文姓名</th>
+                <th class="py-3 px-4">英文姓名</th>
+                <th class="py-3 px-4">所屬分校</th>
+                <th class="py-3 px-4">分校中師</th>
+                <th class="py-3 px-4 text-center">管理操作</th>
+              </tr>
+            </thead>
+            <tbody id="admin-enrolled-table-body" class="divide-y divide-slate-100 text-slate-700">
+              <tr>
+                <td colspan="6" class="py-6 text-center text-slate-400">目前尚無預約名單。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 4: STATS VIEW (統計報表與下載) -->
+    <!-- ========================================== -->
+    <section id="view-stats" class="hidden space-y-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">外師授課與各分校學生口說課統計</h3>
+          <p class="text-xs text-slate-500 mt-0.5">依據自訂時段匯總外師堂數、總時數與學生上課堂數，並支援即時圖表分析與 Excel 報表匯出。</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="stats-quick-range" onchange="onQuickRangeChange()" class="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none">
+            <option value="current-month" selected>當月區間 (Current Month)</option>
+            <option value="next-month">次月區間 (Next Month)</option>
+            <option value="recent-30">近 30 天 (Last 30 Days)</option>
+            <option value="all-records">全部歷史區間</option>
+          </select>
+
+          <div class="flex items-center gap-1.5 bg-slate-50 px-2 py-1 border border-slate-300 rounded-xl">
+            <input type="date" id="stats-start-date" class="bg-transparent text-xs font-mono text-slate-800 focus:outline-none">
+            <span class="text-xs text-slate-400">至</span>
+            <input type="date" id="stats-end-date" class="bg-transparent text-xs font-mono text-slate-800 focus:outline-none">
+          </div>
+
+          <button onclick="refreshStatisticsReport()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition">
+            重新統計
+          </button>
+
+          <button onclick="exportStatisticsExcel()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-emerald-600/20">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            下載統計表 (Excel / CSV)
+          </button>
+
+          <button onclick="triggerReminderModal()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold transition" title="定時下載與雲端備份提醒">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-bold text-slate-500">外師開課節數</p>
+          <h4 id="kpi-total-slots" class="text-xl sm:text-2xl font-black text-sky-700 mt-1">0 節</h4>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-bold text-slate-500">總授課時數</p>
+          <h4 id="kpi-total-hours" class="text-xl sm:text-2xl font-black text-indigo-700 mt-1">0 小時</h4>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-bold text-slate-500">學生上課人次</p>
+          <h4 id="kpi-student-sessions" class="text-xl sm:text-2xl font-black text-emerald-700 mt-1">0 人次</h4>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-bold text-slate-500">不重複學生數</p>
+          <h4 id="kpi-unique-students" class="text-xl sm:text-2xl font-black text-amber-700 mt-1">0 位</h4>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center col-span-2 sm:col-span-1">
+          <p class="text-[11px] font-bold text-slate-500">滿班率 (席次率)</p>
+          <h4 id="kpi-fill-rate" class="text-xl sm:text-2xl font-black text-slate-800 mt-1">0%</h4>
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-600"></span>
+            各外師授課節數分佈 (堂數)
+          </h4>
+          <div class="h-60">
+            <canvas id="teacherLoadChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+            學生口說課參與活躍度排行 (Top 8)
+          </h4>
+          <div class="h-60">
+            <canvas id="studentFreqChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistics Tables -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <!-- Teachers Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-3.5 bg-slate-50 border-b border-slate-100 font-bold text-xs text-slate-700">外師教學堂數明細</div>
+          <table class="w-full text-xs">
+            <thead class="text-slate-500 border-b border-slate-100">
+              <tr>
+                <th class="py-2.5 px-3 text-left">外師姓名</th>
+                <th class="py-2.5 px-3 text-center">授課堂數</th>
+                <th class="py-2.5 px-3 text-center">總時數</th>
+                <th class="py-2.5 px-3 text-center">指導人次</th>
+              </tr>
+            </thead>
+            <tbody id="stats-teacher-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+
+        <!-- Students Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-3.5 bg-slate-50 border-b border-slate-100 font-bold text-xs text-slate-700">學生累積上課堂數清單</div>
+          <div class="max-h-72 overflow-y-auto">
+            <table class="w-full text-xs">
+              <thead class="text-slate-500 border-b border-slate-100 sticky top-0 bg-slate-50">
+                <tr>
+                  <th class="py-2 px-3 text-left">中文名字</th>
+                  <th class="py-2 px-3 text-left">英文名</th>
+                  <th class="py-2 px-3 text-left">分校</th>
+                  <th class="py-2 px-3 text-center">堂數</th>
+                </tr>
+              </thead>
+              <tbody id="stats-student-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================== -->
+  <!-- MODAL: BOOKING MODAL (學生報名填表) -->
+  <!-- ========================================== -->
+  <div id="booking-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+      <button onclick="closeBookingModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3.5 pb-4 mb-4 border-b border-slate-100">
+        <img id="modal-teacher-img" src="https://placehold.co/100x100" class="w-12 h-12 rounded-full object-cover border-2 border-sky-100 shadow-sm">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">報名外師口說課</h3>
+          <p id="modal-teacher-name" class="text-xs font-semibold text-sky-700">Teacher Alex</p>
+          <p id="modal-time-slot" class="text-[11px] text-slate-500 mt-0.5 font-mono">2026-10-26 13:00-13:30</p>
+        </div>
+      </div>
+
+      <div class="mb-3 px-3 py-2 bg-sky-50 border border-sky-100 rounded-xl flex items-center justify-between text-xs">
+        <span class="text-sky-800 font-bold" id="modal-quota-text">名額：尚有 1 位空位</span>
+        <span class="text-slate-500">每時段上限 3 人</span>
+      </div>
+
+      <form id="booking-form" onsubmit="handleBookingSubmit(event)" class="space-y-3">
+        <input type="hidden" id="book-slot-key">
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">(a) 學生中文名字 *</label>
+          <input type="text" id="reg-zh-name" required placeholder="例如：陳冠霖" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">(b) 學生英文名字 *</label>
+          <input type="text" id="reg-en-name" required placeholder="例如：Leo Chen" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">(c) 所屬分校名稱 *</label>
+          <input type="text" id="reg-branch-name" required placeholder="例如：台中西屯校、新竹科園校" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">(d) 該分校負責聯絡的中籍老師姓名 *</label>
+          <input type="text" id="reg-contact-teacher" required placeholder="例如：張老師 (Carol)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <div class="pt-3 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeBookingModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-md shadow-sky-600/30">確認送出預約</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: TEACHER PROFILE EDIT (編輯外師相片與簡介) -->
+  <!-- ========================================== -->
+  <div id="teacher-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closeTeacherModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <h3 class="text-base font-bold text-slate-900 mb-4 pb-2 border-b border-slate-100">外師相片與基本資料設定</h3>
+
+      <form id="teacher-form" onsubmit="handleTeacherProfileSubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">外師姓名 (English Name)</label>
+          <input type="text" id="t-form-name" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">國籍 / 教學專長標籤</label>
+          <input type="text" id="t-form-tag" placeholder="例如：USA 美國 / 青少年發音會話" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+
+        <!-- Teacher Photo Upload -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">外師照片 (支援電腦圖檔 JPG/PNG/WebP 上傳)</label>
+          <div class="flex items-center gap-3.5 mb-2">
+            <img id="t-form-preview" src="https://placehold.co/100x100" class="w-14 h-14 rounded-full object-cover border-2 border-sky-100 shadow-sm flex-shrink-0">
+            <div class="flex-1">
+              <input type="file" id="t-form-file" accept="image/png, image/jpeg, image/jpg, image/webp, image/gif" onchange="onTeacherFileSelected(event)" class="text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100">
+              <p id="t-form-file-name" class="text-[10px] text-slate-400 mt-1 truncate">點選上方按鈕選取圖檔</p>
+            </div>
+          </div>
+          <input type="hidden" id="t-form-photo">
+
+          <details class="text-[11px] text-slate-500 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <summary class="cursor-pointer font-semibold hover:text-sky-600">亦可使用網路圖片網址 (URL)</summary>
+            <input type="url" id="t-form-photo-url" oninput="onTeacherUrlInput(event)" placeholder="https://..." class="w-full mt-2 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+          </details>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">外師個人簡介 (教學理念與風格)</label>
+          <textarea id="t-form-bio" rows="3" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+        </div>
+
+        <div class="pt-3 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeTeacherModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30">儲存外師資料</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: ADD NEW TEACHER (新增外師彈窗) -->
+  <!-- ========================================== -->
+  <div id="add-teacher-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closeAddTeacherModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3 pb-3 mb-4 border-b border-slate-100">
+        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">新增外師師資</h3>
+          <p class="text-xs text-slate-500">新增後全台分校皆可開始排班與媒合</p>
+        </div>
+      </div>
+
+      <form id="add-teacher-form" onsubmit="handleAddTeacherSubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">外師姓名 (English Name) *</label>
+          <input type="text" id="add-t-name" required placeholder="例如：Teacher James (詹姆士)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">國籍 / 專長標籤 *</label>
+          <input type="text" id="add-t-tag" required placeholder="例如：USA 美國 / 青少年發音會話" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        </div>
+
+        <!-- Photo Upload -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">外師照片 (支援電腦圖檔 JPG/PNG/WebP)</label>
+          <div class="flex items-center gap-3.5 mb-2">
+            <img id="add-t-preview" src="https://placehold.co/100x100/0284c7/ffffff?text=New+Teacher" class="w-14 h-14 rounded-full object-cover border-2 border-emerald-100 shadow-sm flex-shrink-0">
+            <div class="flex-1">
+              <input type="file" id="add-t-file" accept="image/png, image/jpeg, image/jpg, image/webp, image/gif" onchange="onNewTeacherFileSelected(event)" class="text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
+              <p id="add-t-file-name" class="text-[10px] text-slate-400 mt-1 truncate">未選擇檔案 (將使用預設頭像)</p>
+            </div>
+          </div>
+          <input type="hidden" id="add-t-photo">
+
+          <details class="text-[11px] text-slate-500 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <summary class="cursor-pointer font-semibold hover:text-emerald-600">或輸入網路圖片網址 (URL)</summary>
+            <input type="url" id="add-t-photo-url" oninput="onNewTeacherUrlInput(event)" placeholder="https://..." class="w-full mt-2 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+          </details>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">個人簡介 (Teaching Philosophy & Style)</label>
+          <textarea id="add-t-bio" rows="3" placeholder="簡述教學背景、風格與專長..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+        </div>
+
+        <div class="pt-3 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeAddTeacherModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30">立即建立外師</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: BACKUP & CLOUD REMINDER (雲端與本地備份說明) -->
+  <!-- ========================================== -->
+  <div id="reminder-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+      <button onclick="closeReminderModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">定期下載備份與儲存提醒</h3>
+          <p class="text-xs text-slate-500">保障全分校口說課資料安全性</p>
+        </div>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+        <p>1. <strong>自動雲端即時同步</strong>：已解鎖 Supabase 即時共享記憶庫後，每一次報名、退選或排班異動均會即時傳遞並保存於雲端資料庫。</p>
+        <p>2. <strong>定期月結存檔</strong>：建議各分校行政人員於每月最後一個工作天，點擊「下載統計表 (Excel / CSV)」，留存當月完整外師鐘點時數與學生課表明細。</p>
+        <p>3. <strong>免費雲端硬碟存放</strong>：下載之 `.csv` 檔案可直接上傳備份至 Google Drive 或 OneDrive，亦可透過 Excel 或 Google 試算表直接編輯閱覽。</p>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button onclick="closeReminderModal()" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: DELETE TEACHER CONFIRMATION (刪除外師安全確認彈窗) -->
+  <!-- ========================================== -->
+  <div id="delete-teacher-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 relative">
+      <div class="flex items-center gap-3.5 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">確認刪除外師？</h3>
+          <p class="text-xs text-slate-500">此動作將清除該外師所有排班時段</p>
+        </div>
+      </div>
+      
+      <p class="text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        您即將刪除外師：<span id="delete-target-teacher-name" class="font-bold text-slate-900">--</span>。<br>
+        刪除後系統將自動切換至其他外師，此操作無法復原。
+      </p>
+
+      <div class="flex items-center justify-end gap-2.5">
+        <button type="button" onclick="closeDeleteTeacherModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+        <button type="button" onclick="executeDeleteTeacher()" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/30">確認刪除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: DEPLOYMENT GUIDE (免費網頁空間發布說明) -->
+  <!-- ========================================== -->
+  <div id="deploy-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closeDeployModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3 pb-3 mb-4 border-b border-slate-100">
+        <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">將平台掛在免費網路空間 (各分校永久固定網址)</h3>
+          <p class="text-xs text-slate-500">免伺服器費用，各分校電腦或手機點開同一網址即可同步</p>
+        </div>
+      </div>
+
+      <div class="space-y-4 text-xs text-slate-700">
+        <div class="p-3 bg-sky-50 border border-sky-100 rounded-xl text-sky-900">
+          <strong>步驟 1：下載本平台完整 HTML 檔案</strong>
+          <p class="mt-1 text-slate-600">點擊下方按鈕即可將當前完整的單一網頁程式下載至您的電腦 (名為 <code>index.html</code>)。</p>
+          <div class="mt-2.5">
+            <button onclick="downloadSelfHtml()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              下載 index.html 網頁檔案
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <h4 class="font-bold text-slate-900 flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[10px]">A</span>
+              方式一：Netlify Drop 免費託管 (最簡單，30秒搞定，無需帳號)
+            </h4>
+            <ol class="list-decimal list-inside mt-2 space-y-1 text-slate-600 leading-relaxed">
+              <li>打開免費網頁託管服務 <a href="https://app.netlify.com/drop" target="_blank" class="text-sky-600 underline font-bold">Netlify Drop (點此開啟)</a>。</li>
+              <li>把剛剛下載的 <code>index.html</code> 放到一個新資料夾（如「口說課平台」）。</li>
+              <li>直接將資料夾拖曳進 Netlify 畫面，立即生成固定專屬網址 (例如 <code>https://your-branch.netlify.app</code>)。</li>
+              <li>將該網址發送給各分校即可！</li>
+            </ol>
+          </div>
+
+          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <h4 class="font-bold text-slate-900 flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[10px]">B</span>
+              方式二：GitHub Pages (免費且永久穩定)
+            </h4>
+            <ol class="list-decimal list-inside mt-2 space-y-1 text-slate-600 leading-relaxed">
+              <li>登入 GitHub 建立一個公開儲存庫 (Repository)，例如 <code>talkmaster-booking</code>。</li>
+              <li>將下載的 <code>index.html</code> 上傳至該儲存庫。</li>
+              <li>到 <strong>Settings &gt; Pages</strong>，Branch 選擇 <code>main</code> 並儲存。</li>
+              <li>即可獲得永久免費專屬網址 (例如 <code>https://your-org.github.io/talkmaster-booking</code>)。</li>
+            </ol>
+          </div>
+
+          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <h4 class="font-bold text-slate-900 flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[10px]">C</span>
+              方式三：Vercel (免費高效能 CDN)
+            </h4>
+            <p class="mt-1 text-slate-600 leading-relaxed">前往 <a href="https://vercel.com" target="_blank" class="text-sky-600 underline font-bold">Vercel</a> 選擇 Deploy Project，將含有 <code>index.html</code> 的資料夾或 GitHub 關聯上傳，即可享有全球 CDN 高速存取。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button onclick="closeDeployModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: PASSCODE UNLOCK CLOUD MEMORY (共享記憶) -->
+  <!-- ========================================== -->
+  <div id="cloud-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[92vh] overflow-y-auto">
+      <button onclick="closeCloudModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3.5 mb-4 pb-3 border-b border-slate-100">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 00-9.78 2.096A4.001 4.001 0 003 15z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">跨分校雲端即時共享記憶庫</h3>
+          <p class="text-xs text-slate-500">免繁瑣設定，任何人在任何設備開啟，都能即時看到最新排班、報名與退選更新</p>
+        </div>
+      </div>
+
+      <div id="cloud-unlocked-panel" class="hidden space-y-4">
+        <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></div>
+          <div>
+            <p class="text-xs font-bold text-emerald-900">已成功連線至跨分校中央共享資料庫！</p>
+            <p class="text-[11px] text-emerald-700 mt-0.5">系統以毫秒級時間戳與時間序序列為主，每 5 秒自動比對並同步最新版本。</p>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-2">
+          <div class="flex justify-between items-center"><span class="text-slate-500">同步模式：</span><span id="cloud-mode-text" class="font-bold text-emerald-700">時間序優先自動同步 (Timestamp-Priority Auto-Sync)</span></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">目前資料庫通道：</span><span id="cloud-channel-text" class="font-mono text-xs font-bold text-slate-800">Supabase Enterprise Hub / Multi-Node Fallback</span></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">資料庫版本時間：</span><span id="cloud-last-sync-time" class="font-mono text-xs text-slate-700 font-bold">尚未同步</span></div>
+        </div>
+
+        <div class="flex items-center gap-2 pt-2">
+          <button onclick="pullCloudData(true)" class="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            手動立即重整最新資料
+          </button>
+          <button onclick="openDatabaseConfigModal()" class="py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-xs font-semibold transition">
+            資料庫連線設定
+          </button>
+          <button onclick="lockCloudMemory()" class="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">
+            鎖定 / 退出
+          </button>
+        </div>
+      </div>
+
+      <div id="cloud-locked-panel" class="space-y-4">
+        <p class="text-xs text-slate-600 leading-relaxed">
+          輸入全分校授權密碼後，系統將自動連結至<strong>跨分校中央共享資料庫</strong>。不同分校中師、外師與學生在任何地點打開平台，均能即時看到同步的課表與空位！
+        </p>
+
+        <form id="cloud-passcode-form" onsubmit="handlePasscodeSubmit(event)" class="space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">請輸入全分校共享記憶授權密碼：</label>
+            <div class="relative">
+              <input type="password" id="cloud-passcode-input" required placeholder="請輸入密碼..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono tracking-wider focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <button type="button" onclick="togglePasscodeVisibility()" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-xs">
+                切換顯示
+              </button>
+            </div>
+            <p id="cloud-passcode-error" class="text-xs text-rose-600 font-semibold mt-1.5 hidden">密碼錯誤，請重新輸入！</p>
+          </div>
+
+          <div class="pt-2 flex items-center justify-end gap-2.5">
+            <button type="button" onclick="closeCloudModal()" class="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100">稍後再說</button>
+            <button type="submit" class="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30">驗證並連接全分校記憶</button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: PRODUCTION SUPABASE CONFIG (正式資料庫設定) -->
+  <!-- ========================================== -->
+  <div id="database-config-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[92vh] overflow-y-auto">
+      <button onclick="closeDatabaseConfigModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3.5 mb-4 pb-3 border-b border-slate-100">
+        <div class="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">正式營運資料庫連線 (Supabase)</h3>
+          <p class="text-xs text-slate-500">提供 100% 穩定、不漏單的跨分校即時持久化資料庫</p>
+        </div>
+      </div>
+
+      <div class="space-y-4 text-xs text-slate-700">
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 leading-relaxed">
+          <strong>💡 為什麼建議設定專屬 Supabase 資料庫？</strong>
+          <p class="mt-1 text-slate-600">
+            公共臨時測試通道在高峰期可能遇到網路限速或跨域快取，而 Supabase（免費提供 500MB PostgreSQL，足夠使用數年）能保證全台分校電腦、平板、手機在任何時間點打開，都連上同一個權威資料庫，達到 100% 同步！
+          </p>
+        </div>
+
+        <form id="db-config-form" onsubmit="handleSaveDbConfig(event)" class="space-y-3">
+          <div>
+            <label class="block font-bold text-slate-800 mb-1">Supabase Project URL：</label>
+            <input type="url" id="cfg-supabase-url" placeholder="https://your-project.supabase.co" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500">
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-800 mb-1">Supabase Anon Public API Key：</label>
+            <input type="text" id="cfg-supabase-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500">
+          </div>
+
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="font-bold text-slate-800">在 Supabase SQL Editor 執行此指令建立資料表：</span>
+              <button type="button" onclick="copySqlSchema()" class="text-amber-700 font-bold hover:underline">複製 SQL</button>
+            </div>
+            <pre id="sql-schema-code" class="bg-slate-900 text-emerald-400 p-2.5 rounded-lg text-[11px] font-mono overflow-x-auto select-all">CREATE TABLE IF NOT EXISTS public.lesson_hub_state (
+  id TEXT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+ALTER TABLE public.lesson_hub_state ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read-write" ON public.lesson_hub_state FOR ALL USING (true) WITH CHECK (true);
+ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
+          </div>
+
+          <div class="pt-2 flex items-center justify-end gap-2.5">
+            <button type="button" onclick="testDbConnection()" class="px-4 py-2 rounded-xl text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200">測試連線</button>
+            <button type="button" onclick="closeDatabaseConfigModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+            <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 shadow-md">儲存並啟用專屬資料庫</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    /* ==========================================================
+       1. CONSTANTS, TIME INTERVALS & DATE UTILS
+       ========================================================== */
+    function generateTimeIntervals() {
+      const slots = [];
+      let currentHour = 13;
+      let currentMin = 0;
+
+      while (currentHour < 20 || (currentHour === 20 && currentMin === 0)) {
+        const startH = String(currentHour).padStart(2, '0');
+        const startM = String(currentMin).padStart(2, '0');
+
+        let nextMin = currentMin + 30;
+        let nextHour = currentHour;
+        if (nextMin >= 60) {
+          nextMin = 0;
+          nextHour++;
+        }
+        const endH = String(nextHour).padStart(2, '0');
+        const endM = String(nextMin).padStart(2, '0');
+
+        slots.push({
+          id: `${startH}:${startM}-${endH}:${endM}`,
+          label: `${startH}:${startM} - ${endH}:${endM}`,
+          start: `${startH}:${startM}`,
+          end: `${endH}:${endM}`,
+        });
+
+        currentHour = nextHour;
+        currentMin = nextMin;
+      }
+      return slots;
+    }
+
+    const TIME_SLOTS = generateTimeIntervals();
+    const MAX_STUDENTS_PER_SLOT = 3;
+
+    function formatDateIso(d) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function getMondayOfWeek(d) {
+      const date = new Date(d);
+      const day = date.getDay();
+      // If Sunday (0), go back 6 days to Monday of that week
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(date.setDate(diff));
+    }
+
+    function getWeekDaysFromMonday(mondayDate) {
+      const days = [];
+      const dayNames = ['星期一', '星期二', '星期三', '星期四', '星期五'];
+      const dayEn = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+      for (let i = 0; i < 5; i++) {
+        const curr = new Date(mondayDate);
+        curr.setDate(mondayDate.getDate() + i);
+        days.push({
+          dateStr: formatDateIso(curr),
+          dayName: dayNames[i],
+          dayEn: dayEn[i],
+          dateObj: curr,
+          displayDate: `${curr.getMonth() + 1}/${curr.getDate()}`
+        });
+      }
+      return days;
+    }
+
+    /* ==========================================================
+       2. APPLICATION STATE & DISTRIBUTED CLOUD ENGINE
+       ========================================================== */
+    let currentView = 'student';
+    const systemToday = new Date();
+    let currentMonday = getMondayOfWeek(systemToday);
+    let selectedDateStr = formatDateIso(currentMonday);
+    let activeAdminTeacherId = 't_elite01';
+    let hasPerformedInitialDateAlign = false;
+
+    let teacherChartInstance = null;
+    let studentChartInstance = null;
+
+    const REQUIRED_PASSCODE = 'elite28371657';
+    let isCloudUnlocked = true;
+    let cloudSyncInterval = null;
+    let isImageProcessing = false;
+
+    const LS_KEY_DATA = 'ELITETALK_CENTRAL_CACHE_V3';
+    const LS_KEY_AUTH = 'ELITETALK_AUTH_STATE_V3';
+    const LS_KEY_SUPABASE = 'ELITETALK_SUPABASE_CFG_V3';
+
+    // Multi-Layer Cloud Sync Channels
+    // Layer 1: Native Firebase Firestore (if __firebase_config is present)
+    let fbDb = null;
+    let fbAuth = null;
+    let fbUser = null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'elitetalk-global-hub';
+
+    // Layer 2: User-configured Supabase PostgreSQL (if configured)
+    let supabaseClient = null;
+    let customSupabaseUrl = '';
+    let customSupabaseKey = '';
+
+    // Layer 3: Chunked Ntfy Pub/Sub Event Stream (Works globally on Netlify/GitHub Pages without CORS or Auth)
+    // We split state & avatars into lightweight chunks (< 3000 bytes) so Ntfy never converts to attachments!
+    const NTFY_CORE_TOPIC = 'elitetalk_v3_core_state_28371657';
+    const NTFY_AVATAR_PREFIX = 'elitetalk_v3_avatar_28371657_';
+    const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
+
+    // Cross-tab instant broadcast
+    const broadcastChannel = window.BroadcastChannel ? new BroadcastChannel('elitetalk_sync_v3') : null;
+    if (broadcastChannel) {
+      broadcastChannel.onmessage = (event) => {
+        if (event.data && event.data.type === 'SYNC_UPDATE') {
+          applyDataset(event.data.payload, false, '本機跨分頁同步');
+        }
+      };
+    }
+
+    // Default Seed Teachers
+    let teachers = [
+      {
+        id: 't_elite01',
+        name: 'Teacher Elite01',
+        tag: 'Taiwan 專任口說外師',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80',
+        bio: '熱愛引導學生主動開口，注重生活日常口語自然表達。'
+      }
+    ];
+
+    let availability = {};
+    let bookings = {};
+    let customAvatars = {}; // Map of teacherId -> compressed base64 avatar
+
+    let lastKnownUpdatedAt = 0;
+    let currentSequence = 0;
+
+    function countActiveSlots(availObj = availability) {
+      if (!availObj) return 0;
+      return Object.values(availObj).filter(v => v === true).length;
+    }
+
+    function countTotalBookings(bookObj = bookings) {
+      if (!bookObj) return 0;
+      return Object.values(bookObj).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
+    }
+
+    /* ==========================================================
+       SMART DATE ALIGNMENT (解決不同電腦打開預設日期不同導致看似0時段的問題)
+       ========================================================== */
+    function alignToActiveScheduleDate() {
+      // Check if current selectedDateStr already has open slots
+      const hasSlotsOnSelected = Object.keys(availability).some(k => {
+        if (availability[k] !== true) return false;
+        const { dateStr } = parseSlotKey(k);
+        return dateStr === selectedDateStr;
+      });
+
+      if (hasSlotsOnSelected) return;
+
+      // Find all dates that actually have open slots
+      const activeDates = [];
+      Object.keys(availability).forEach(k => {
+        if (availability[k] === true) {
+          const { dateStr } = parseSlotKey(k);
+          if (dateStr && !activeDates.includes(dateStr)) {
+            activeDates.push(dateStr);
+          }
+        }
+      });
+
+      if (activeDates.length > 0) {
+        activeDates.sort();
+        const todayStr = formatDateIso(systemToday);
+        // Prefer upcoming or current active date; otherwise pick the most recent active date (e.g., 2026-10-19)
+        const targetDateStr = activeDates.find(d => d >= todayStr) || activeDates[0];
+        const parts = targetDateStr.split('-');
+        if (parts.length === 3) {
+          const targetDateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+          if (!isNaN(targetDateObj.getTime())) {
+            currentMonday = getMondayOfWeek(targetDateObj);
+            selectedDateStr = targetDateStr;
+            updateCalendarBanner();
+          }
+        }
+      }
+    }
+
+    /* ==========================================================
+       LAYER 1: FIREBASE INITIALIZATION (IF ENVIRONMENT SUPPORTS)
+       ========================================================== */
+    async function initFirebaseLayer() {
+      try {
+        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+          const firebaseConfig = JSON.parse(__firebase_config);
+          const app = initializeApp(firebaseConfig);
+          fbAuth = getAuth(app);
+          fbDb = getFirestore(app);
+
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            const cred = await signInWithCustomToken(fbAuth, __initial_auth_token);
+            fbUser = cred.user;
+          } else {
+            const cred = await signInAnonymously(fbAuth);
+            fbUser = cred.user;
+          }
+
+          if (fbUser && fbDb) {
+            const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+            onSnapshot(stateDocRef, (snap) => {
+              if (snap.exists()) {
+                const data = snap.data();
+                if (data && data.payloadJson) {
+                  try {
+                    const parsed = JSON.parse(data.payloadJson);
+                    applyDataset(parsed, true, 'Firebase Realtime');
+                  } catch (e) {}
+                }
+              }
+            }, (err) => {
+              console.warn("Firestore snapshot warning:", err);
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Firebase layer skipped:", err);
+      }
+    }
+
+    /* ==========================================================
+       LAYER 2: SUPABASE DATABASE INTEGRATION
+       ========================================================== */
+    function initSupabaseFromStorage() {
+      try {
+        const saved = localStorage.getItem(LS_KEY_SUPABASE);
+        if (saved) {
+          const cfg = JSON.parse(saved);
+          if (cfg && cfg.url && cfg.key && window.supabase) {
+            customSupabaseUrl = cfg.url;
+            customSupabaseKey = cfg.key;
+            supabaseClient = window.supabase.createClient(cfg.url, cfg.key);
+            
+            try {
+              supabaseClient
+                .channel('lesson_hub_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'lesson_hub_state' }, (payload) => {
+                  if (payload && payload.new && payload.new.payload) {
+                    const data = typeof payload.new.payload === 'string' ? JSON.parse(payload.new.payload) : payload.new.payload;
+                    applyDataset(data, true, 'Supabase Realtime');
+                  }
+                })
+                .subscribe();
+            } catch (err) {
+              console.warn("Supabase realtime warning:", err);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to init supabase from storage", e);
+      }
+    }
+
+    function openDatabaseConfigModal() {
+      const urlInput = document.getElementById('cfg-supabase-url');
+      const keyInput = document.getElementById('cfg-supabase-key');
+      if (urlInput) urlInput.value = customSupabaseUrl || '';
+      if (keyInput) keyInput.value = customSupabaseKey || '';
+      document.getElementById('database-config-modal')?.classList.remove('hidden');
+    }
+
+    function closeDatabaseConfigModal() {
+      document.getElementById('database-config-modal')?.classList.add('hidden');
+    }
+
+    function copySqlSchema() {
+      const sql = document.getElementById('sql-schema-code')?.textContent;
+      if (!sql) return;
+      const el = document.createElement('textarea');
+      el.value = sql;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      showToast('已複製建表 SQL 指令！請至 Supabase -> SQL Editor 執行貼上', 'success');
+    }
+
+    async function testDbConnection() {
+      const url = document.getElementById('cfg-supabase-url')?.value.trim();
+      const key = document.getElementById('cfg-supabase-key')?.value.trim();
+      if (!url || !key) {
+        showToast('請先填寫 Supabase Project URL 與 Key！', 'warning');
+        return;
+      }
+      try {
+        const client = window.supabase.createClient(url, key);
+        const { error } = await client.from('lesson_hub_state').select('*').limit(1);
+        if (error) {
+          showToast(`連線失敗：${error.message} (請確認是否已執行 SQL 建表)`, 'error');
+        } else {
+          showToast('連線成功！Supabase 資料庫運作正常！', 'success');
+        }
+      } catch (err) {
+        showToast(`連線異常：${err.message}`, 'error');
+      }
+    }
+
+    async function handleSaveDbConfig(e) {
+      e.preventDefault();
+      const url = document.getElementById('cfg-supabase-url')?.value.trim();
+      const key = document.getElementById('cfg-supabase-key')?.value.trim();
+      if (!url || !key) {
+        showToast('請填寫完整資訊！', 'warning');
+        return;
+      }
+
+      localStorage.setItem(LS_KEY_SUPABASE, JSON.stringify({ url, key }));
+      customSupabaseUrl = url;
+      customSupabaseKey = key;
+      if (window.supabase) {
+        supabaseClient = window.supabase.createClient(url, key);
+      }
+
+      showToast('已儲存 Supabase 設定！正在同步全分校資料庫...', 'success');
+      closeDatabaseConfigModal();
+      
+      await pushCloudData();
+      await pullCloudData(true);
+    }
+
+    /* ==========================================================
+       CLOUD SYNC ENGINE (CHUNKED NTFY STREAM + MERGE ARBITRATION)
+       解決 Ntfy 4096 bytes 限制，將相片與核心排班分離傳輸，100% 寫入成功
+       ========================================================== */
+    function getFullDataset(bumpTimestamp = true) {
+      if (bumpTimestamp) {
+        lastKnownUpdatedAt = Date.now();
+        currentSequence++;
+      }
+      // Ensure teachers have their custom avatars attached in full dataset
+      const enrichedTeachers = teachers.map(t => ({
+        ...t,
+        avatar: customAvatars[t.id] || t.avatar
+      }));
+      return {
+        teachers: enrichedTeachers,
+        availability,
+        bookings,
+        customAvatars,
+        updatedAt: lastKnownUpdatedAt,
+        sequence: currentSequence
+      };
+    }
+
+    function getCompactCoreDataset() {
+      // Compact payload (< 2.5KB) for fast, attachment-free Ntfy streaming
+      const compactTeachers = teachers.map(t => {
+        const isDataImg = t.avatar && t.avatar.startsWith('data:');
+        if (isDataImg) {
+          customAvatars[t.id] = t.avatar;
+        }
+        return {
+          id: t.id,
+          name: t.name,
+          tag: t.tag,
+          bio: t.bio,
+          hasCustomAvatar: Boolean(isDataImg || customAvatars[t.id]),
+          avatarUrl: isDataImg ? '' : t.avatar
+        };
+      });
+
+      // Only store true availability keys to minimize bytes
+      const compactAvailability = {};
+      Object.keys(availability).forEach(k => {
+        if (availability[k] === true) {
+          compactAvailability[k] = true;
+        }
+      });
+
+      // Only store non-empty bookings
+      const compactBookings = {};
+      Object.keys(bookings).forEach(k => {
+        if (Array.isArray(bookings[k]) && bookings[k].length > 0) {
+          compactBookings[k] = bookings[k];
+        }
+      });
+
+      return {
+        v: 3,
+        teachers: compactTeachers,
+        availability: compactAvailability,
+        bookings: compactBookings,
+        updatedAt: lastKnownUpdatedAt,
+        sequence: currentSequence
+      };
+    }
+
+    function applyDataset(data, saveToLocal = true, source = '雲端') {
+      if (!data || typeof data !== 'object') return false;
+
+      const incomingUpdatedAt = Number(data.updatedAt) || 0;
+      const incomingSequence = Number(data.sequence) || 0;
+      const incomingSlotsCount = countActiveSlots(data.availability);
+      const localSlotsCount = countActiveSlots(availability);
+
+      // 防護 1：若本地已有排課，拒絕被「0 時段且無預約」的空初始化封包洗掉
+      if (incomingSlotsCount === 0 && localSlotsCount > 0 && countTotalBookings(data.bookings) === 0 && !data.forceClear) {
+        return false;
+      }
+
+      // 防護 2：嚴格時間戳比對 (只接受較新的資料，或本地尚未初始化時)
+      if (lastKnownUpdatedAt > 0 && incomingUpdatedAt > 0) {
+        if (incomingUpdatedAt < lastKnownUpdatedAt) {
+          return false;
+        }
+        if (incomingUpdatedAt === lastKnownUpdatedAt && incomingSequence <= currentSequence) {
+          return false;
+        }
+      }
+
+      lastKnownUpdatedAt = incomingUpdatedAt || Date.now();
+      currentSequence = Math.max(currentSequence, incomingSequence);
+
+      if (data.customAvatars && typeof data.customAvatars === 'object') {
+        customAvatars = { ...customAvatars, ...data.customAvatars };
+      }
+
+      if (Array.isArray(data.teachers) && data.teachers.length > 0) {
+        teachers = data.teachers.map(t => {
+          if (t.avatar && t.avatar.startsWith('data:')) {
+            customAvatars[t.id] = t.avatar;
+          }
+          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
+          return {
+            id: t.id,
+            name: t.name,
+            tag: t.tag || '專任英語口說師資',
+            bio: t.bio || '',
+            avatar: resolvedAvatar,
+            hasCustomAvatar: Boolean(t.hasCustomAvatar || customAvatars[t.id])
+          };
+        });
+      }
+
+      if (data.availability && typeof data.availability === 'object') {
+        availability = data.availability;
+      }
+      if (data.bookings && typeof data.bookings === 'object') {
+        bookings = data.bookings;
+      }
+
+      // 初次載入雲端資料時，若當前選中日期沒有課，自動對齊到有排課的日期 (例如 10/19)
+      if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
+        hasPerformedInitialDateAlign = true;
+        alignToActiveScheduleDate();
+      }
+
+      populateTeacherFilterOptions();
+      populateAdminTeacherSelector();
+      if (currentView === 'student') renderStudentSchedule();
+      if (currentView === 'mybookings') listAllUpcomingBookings();
+      if (currentView === 'admin') renderAdminView();
+      if (currentView === 'stats') refreshStatisticsReport();
+
+      if (saveToLocal) {
+        try {
+          localStorage.setItem(LS_KEY_DATA, JSON.stringify(getFullDataset(false)));
+        } catch (err) {}
+      }
+
+      updateVersionDisplay(lastKnownUpdatedAt, currentSequence, source);
+      return true;
+    }
+
+    // Fetch Custom Avatar chunks from Ntfy topic per teacher
+    async function pullAvatarForTeacher(teacherId) {
+      try {
+        const res = await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}/json?poll=1&since=all`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const text = (await res.text()).trim();
+        if (!text) return null;
+        const lines = text.split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const msg = JSON.parse(lines[i]);
+            if (msg && msg.message && msg.message.startsWith('data:image')) {
+              return msg.message;
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    async function pushAvatarForTeacher(teacherId, base64Data) {
+      if (!teacherId || !base64Data || !base64Data.startsWith('data:image')) return;
+      customAvatars[teacherId] = base64Data;
+      try {
+        await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}`, {
+          method: 'POST',
+          body: base64Data
+        });
+      } catch (e) {
+        console.warn("Avatar push warning:", e);
+      }
+    }
+
+    // Pull Central Data from All Available Cloud Channels
+    async function pullCloudData(showFeedback = false) {
+      let newestPayload = null;
+      let winningSource = '雲端同步中心';
+
+      // 1. Check Supabase (if configured)
+      if (supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('lesson_hub_state')
+            .select('payload, updated_at')
+            .eq('id', 'central_state')
+            .single();
+
+          if (!error && data && data.payload) {
+            const payload = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+              newestPayload = payload;
+              winningSource = 'Supabase 資料庫';
+            }
+          }
+        } catch (err) {}
+      }
+
+      // 2. Check Firebase Firestore (if available in environment)
+      if (fbDb && fbUser) {
+        try {
+          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+          const snap = await getDoc(stateDocRef);
+          if (snap.exists()) {
+            const d = snap.data();
+            if (d && d.payloadJson) {
+              const payload = JSON.parse(d.payloadJson);
+              if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                newestPayload = payload;
+                winningSource = 'Firestore 雲端';
+              }
+            }
+          }
+        } catch (err) {}
+      }
+
+      // 3. Check Global Ntfy Event Stream (Works across all Netlify / Mobile / Desktop browsers)
+      try {
+        const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+
+        if (resNtfy.ok) {
+          const rawText = (await resNtfy.text()).trim();
+          if (rawText) {
+            const lines = rawText.split('\n');
+            for (let i = lines.length - 1; i >= 0; i--) {
+              const line = lines[i].trim();
+              if (!line) continue;
+              try {
+                const msg = JSON.parse(line);
+                if (msg && msg.event === 'message' && msg.message) {
+                  const payload = JSON.parse(msg.message);
+                  if (payload && payload.teachers && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                    newestPayload = payload;
+                    winningSource = '跨分校即時雲端';
+                    break; // Since lines are chronological, the last valid message is the newest
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (errNtfy) {
+        console.warn("Ntfy stream poll warning:", errNtfy);
+      }
+
+      if (newestPayload) {
+        // Check if any teacher needs custom avatar pulled
+        if (Array.isArray(newestPayload.teachers)) {
+          for (const t of newestPayload.teachers) {
+            if (t.hasCustomAvatar && !customAvatars[t.id]) {
+              const fetchedAvatar = await pullAvatarForTeacher(t.id);
+              if (fetchedAvatar) {
+                customAvatars[t.id] = fetchedAvatar;
+              }
+            }
+          }
+        }
+
+        const applied = applyDataset(newestPayload, true, winningSource);
+        updateSyncBadge(true);
+        if (showFeedback) {
+          if (applied) {
+            showToast(`已從${winningSource}載入最新資料！(版本: ${formatTimestampDisplay(newestPayload.updatedAt)})`, 'success');
+          } else {
+            showToast(`目前已是全分校最新狀態！(版本: ${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'info');
+          }
+        }
+        return true;
+      }
+
+      if (showFeedback) {
+        showToast('目前已是最新狀態！', 'info');
+      }
+      return false;
+    }
+
+    // Push local updates to All Cloud Channels with Verification
+    async function pushCloudData(forceClear = false) {
+      const fullDataset = getFullDataset(true);
+      if (forceClear) fullDataset.forceClear = true;
+
+      // 1. Save to LocalStorage immediately
+      try {
+        localStorage.setItem(LS_KEY_DATA, JSON.stringify(fullDataset));
+      } catch (e) {}
+
+      updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '同步寫入中...');
+
+      // 2. Broadcast across local browser tabs
+      if (broadcastChannel) {
+        broadcastChannel.postMessage({ type: 'SYNC_UPDATE', payload: fullDataset });
+      }
+
+      let verifiedWriteCount = 0;
+
+      // 3. Push to Supabase if configured
+      if (supabaseClient) {
+        try {
+          const { error } = await supabaseClient
+            .from('lesson_hub_state')
+            .upsert({
+              id: 'central_state',
+              payload: fullDataset,
+              updated_at: fullDataset.updatedAt
+            });
+          if (!error) verifiedWriteCount++;
+        } catch (e) {}
+      }
+
+      // 4. Push to Firebase Firestore if available
+      if (fbDb && fbUser) {
+        try {
+          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+          await setDoc(stateDocRef, {
+            payloadJson: JSON.stringify(fullDataset),
+            updatedAt: fullDataset.updatedAt
+          });
+          verifiedWriteCount++;
+        } catch (e) {}
+      }
+
+      // 5. Push compact core dataset (< 2.5KB) to Global Ntfy Stream (Guaranteed < 4096 bytes!)
+      try {
+        const compactPayload = getCompactCoreDataset();
+        if (forceClear) compactPayload.forceClear = true;
+        const compactStr = JSON.stringify(compactPayload);
+
+        const resNtfy = await fetch(NTFY_CORE_URL, {
+          method: 'POST',
+          body: compactStr
+        });
+        if (resNtfy.ok) {
+          verifiedWriteCount++;
+        }
+      } catch (err) {
+        console.warn("Ntfy push error:", err);
+      }
+
+      if (verifiedWriteCount > 0) {
+        updateSyncBadge(true);
+        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '已同步');
+      } else {
+        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '僅本機暫存');
+      }
+    }
+
+    function openCloudModal() {
+      const modal = document.getElementById('cloud-modal');
+      const lockedPanel = document.getElementById('cloud-locked-panel');
+      const unlockedPanel = document.getElementById('cloud-unlocked-panel');
+      const err = document.getElementById('cloud-passcode-error');
+      if (err) err.classList.add('hidden');
+
+      if (isCloudUnlocked) {
+        lockedPanel.classList.add('hidden');
+        unlockedPanel.classList.remove('hidden');
+      } else {
+        lockedPanel.classList.remove('hidden');
+        unlockedPanel.classList.add('hidden');
+        setTimeout(() => document.getElementById('cloud-passcode-input')?.focus(), 150);
+      }
+      modal.classList.remove('hidden');
+    }
+
+    function closeCloudModal() {
+      document.getElementById('cloud-modal').classList.add('hidden');
+    }
+
+    function openDeployModal() {
+      document.getElementById('deploy-modal')?.classList.remove('hidden');
+    }
+
+    function closeDeployModal() {
+      document.getElementById('deploy-modal')?.classList.add('hidden');
+    }
+
+    function downloadSelfHtml() {
+      const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'index.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('已下載最新 index.html！請拖曳至 Netlify 更新您的網站', 'success');
+    }
+
+    function togglePasscodeVisibility() {
+      const input = document.getElementById('cloud-passcode-input');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function handlePasscodeSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('cloud-passcode-input').value.trim();
+      const err = document.getElementById('cloud-passcode-error');
+
+      if (input === REQUIRED_PASSCODE) {
+        if (err) err.classList.add('hidden');
+        unlockCloudMemory();
+      } else {
+        if (err) err.classList.remove('hidden');
+        showToast('密碼不符合，請輸入授權密碼：elite28371657', 'error');
+      }
+    }
+
+    async function unlockCloudMemory() {
+      isCloudUnlocked = true;
+      localStorage.setItem(LS_KEY_AUTH, 'UNLOCKED');
+      updateSyncBadge(true);
+      showToast('授權成功！正在同步全分校最新雲端資料...', 'info');
+      await pullCloudData(true);
+      closeCloudModal();
+    }
+
+    function lockCloudMemory() {
+      isCloudUnlocked = false;
+      localStorage.removeItem(LS_KEY_AUTH);
+      updateSyncBadge(false);
+      closeCloudModal();
+      showToast('已切換為檢視模式', 'info');
+    }
+
+    function updateSyncBadge(online) {
+      const dot = document.getElementById('cloud-status-dot');
+      const text = document.getElementById('cloud-status-text');
+      const btn = document.getElementById('cloud-sync-status-btn');
+
+      if (online) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        text.textContent = supabaseClient 
+          ? '各分校雲端資料庫已連線 (Supabase)' 
+          : '各分校共享記憶已連線 (即時同步中)';
+        btn.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition shadow-sm';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+        text.textContent = '各分校共享雲端記憶 (點擊設定)';
+        btn.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100 transition shadow-sm';
+      }
+    }
+
+    function formatTimestampDisplay(ts) {
+      if (!ts) return '尚未同步';
+      const d = new Date(ts);
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const s = String(d.getSeconds()).padStart(2, '0');
+      return `${m}/${day} ${h}:${min}:${s}`;
+    }
+
+    function updateVersionDisplay(timestamp, seq, statusLabel = '') {
+      const badge = document.getElementById('live-version-badge');
+      const timeEl = document.getElementById('cloud-last-sync-time');
+      const displayStr = formatTimestampDisplay(timestamp);
+
+      if (badge) {
+        badge.textContent = `最新版本: ${displayStr}${statusLabel ? ` (${statusLabel})` : ''}`;
+      }
+      if (timeEl && timestamp) {
+        timeEl.textContent = `${new Date(timestamp).toLocaleString('zh-TW')} (序號: ${seq || 0})`;
+      }
+    }
+
+    /* ==========================================================
+       3. NAVIGATION & VIEW SWITCHER
+       ========================================================== */
+    function switchView(viewName) {
+      currentView = viewName;
+      const views = ['student', 'mybookings', 'admin', 'stats'];
+      views.forEach(v => {
+        const sec = document.getElementById(`view-${v}`);
+        const btn = document.getElementById(`btn-tab-${v}`);
+        if (v === viewName) {
+          sec.classList.remove('hidden');
+          btn.className = 'flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all shadow-sm bg-white text-sky-700 whitespace-nowrap';
+        } else {
+          sec.classList.add('hidden');
+          btn.className = 'flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 whitespace-nowrap';
+        }
+      });
+
+      const calBanner = document.getElementById('calendar-header-banner');
+      if (viewName === 'student' || viewName === 'admin') {
+        calBanner.classList.remove('hidden');
+      } else {
+        calBanner.classList.add('hidden');
+      }
+
+      if (viewName === 'student') renderStudentSchedule();
+      if (viewName === 'mybookings') listAllUpcomingBookings();
+      if (viewName === 'admin') renderAdminView();
+      if (viewName === 'stats') refreshStatisticsReport();
+    }
+
+    /* ==========================================================
+       4. CALENDAR & WEEK NAVIGATION
+       ========================================================== */
+    function updateCalendarBanner() {
+      const weekDays = getWeekDaysFromMonday(currentMonday);
+      const startStr = `${weekDays[0].dateObj.getFullYear()}/${weekDays[0].dateObj.getMonth() + 1}/${weekDays[0].dateObj.getDate()}`;
+      const endStr = `${weekDays[4].dateObj.getMonth() + 1}/${weekDays[4].dateObj.getDate()}`;
+
+      document.getElementById('current-today-badge').textContent = `今天：${formatDateIso(systemToday)}`;
+      document.getElementById('calendar-current-week-label').textContent = `${startStr} ~ ${endStr} (週一至週五)`;
+
+      const dateInWeek = weekDays.some(d => d.dateStr === selectedDateStr);
+      if (!dateInWeek) {
+        selectedDateStr = weekDays[0].dateStr;
+      }
+      document.getElementById('calendar-date-picker').value = selectedDateStr;
+
+      renderWeekdayTabs();
+    }
+
+    function navigateWeek(delta) {
+      currentMonday.setDate(currentMonday.getDate() + delta * 7);
+      updateCalendarBanner();
+      if (currentView === 'student') renderStudentSchedule();
+      if (currentView === 'admin') renderAdminView();
+    }
+
+    function jumpToCurrentWeek() {
+      currentMonday = getMondayOfWeek(systemToday);
+      selectedDateStr = formatDateIso(systemToday);
+      updateCalendarBanner();
+      if (currentView === 'student') renderStudentSchedule();
+      if (currentView === 'admin') renderAdminView();
+    }
+
+    function onDatePickerChanged(e) {
+      const chosen = new Date(e.target.value);
+      if (isNaN(chosen.getTime())) return;
+
+      currentMonday = getMondayOfWeek(chosen);
+      selectedDateStr = formatDateIso(chosen);
+      updateCalendarBanner();
+      if (currentView === 'student') renderStudentSchedule();
+      if (currentView === 'admin') renderAdminView();
+    }
+
+    function renderWeekdayTabs() {
+      const weekDays = getWeekDaysFromMonday(currentMonday);
+      
+      const studentContainer = document.getElementById('student-weekday-tabs-container');
+      if (studentContainer) studentContainer.innerHTML = '';
+      
+      const adminContainer = document.getElementById('admin-weekday-tabs-container');
+      if (adminContainer) adminContainer.innerHTML = '';
+
+      weekDays.forEach(day => {
+        const isActive = day.dateStr === selectedDateStr;
+        const isPast = day.dateStr < formatDateIso(systemToday);
+
+        // Student Tab
+        if (studentContainer) {
+          const btnS = document.createElement('button');
+          btnS.onclick = () => {
+            selectedDateStr = day.dateStr;
+            renderWeekdayTabs();
+            renderStudentSchedule();
+          };
+          btnS.className = `flex-1 min-w-[125px] py-2.5 px-3 rounded-xl font-medium text-xs sm:text-sm transition-all border flex flex-col items-center justify-center ${
+            isActive 
+              ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20' 
+              : isPast 
+                ? 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200' 
+                : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+          }`;
+          btnS.innerHTML = `
+            <div class="flex items-center gap-1">
+              <span class="font-bold">${day.dayName}</span>
+              <span class="text-[10px] opacity-75">${day.displayDate}</span>
+            </div>
+            <span class="text-[10px] tracking-wider uppercase opacity-80">${day.dateStr}</span>
+          `;
+          studentContainer.appendChild(btnS);
+        }
+
+        // Admin Tab
+        if (adminContainer) {
+          const btnA = document.createElement('button');
+          btnA.onclick = () => {
+            selectedDateStr = day.dateStr;
+            renderWeekdayTabs();
+            renderAdminView();
+          };
+          btnA.className = `flex-1 min-w-[125px] py-2 px-3 rounded-xl font-medium text-xs sm:text-sm transition-all border flex flex-col items-center justify-center ${
+            isActive 
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm' 
+              : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+          }`;
+          btnA.innerHTML = `
+            <div class="flex items-center gap-1">
+              <span class="font-bold">${day.dayName}</span>
+              <span class="text-[10px] opacity-75">${day.displayDate}</span>
+            </div>
+            <span class="text-[10px] text-slate-400">${day.dateStr}</span>
+          `;
+          adminContainer.appendChild(btnA);
+        }
+      });
+    }
+
+    /* ==========================================================
+       5. DROPDOWNS & FILTER OPTIONS
+       ========================================================== */
+    function populateTeacherFilterOptions() {
+      const select = document.getElementById('student-filter-teacher');
+      if (!select) return;
+      const currentVal = select.value;
+      select.innerHTML = '<option value="ALL">全部外師 (All Teachers)</option>';
+      teachers.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        select.appendChild(opt);
+      });
+      if (teachers.some(t => t.id === currentVal)) {
+        select.value = currentVal;
+      }
+    }
+
+    function populateAdminTeacherSelector() {
+      const select = document.getElementById('admin-teacher-select');
+      if (!select) return;
+      select.innerHTML = '';
+      teachers.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        select.appendChild(opt);
+      });
+
+      if (!teachers.some(t => t.id === activeAdminTeacherId) && teachers.length > 0) {
+        activeAdminTeacherId = teachers[0].id;
+      }
+      select.value = activeAdminTeacherId;
+      updateAdminTeacherProfileHeader();
+    }
+
+    function updateAdminTeacherProfileHeader() {
+      const teacher = teachers.find(t => t.id === activeAdminTeacherId);
+      if (!teacher) return;
+      const nameEl = document.getElementById('admin-profile-name');
+      const tagEl = document.getElementById('admin-profile-nationality');
+      const introEl = document.getElementById('admin-profile-intro');
+      const avatarEl = document.getElementById('admin-profile-avatar');
+
+      if (nameEl) nameEl.textContent = teacher.name;
+      if (tagEl) tagEl.textContent = teacher.tag || '專任師資';
+      if (introEl) introEl.textContent = teacher.bio || '尚未填寫簡介。';
+      if (avatarEl) avatarEl.src = teacher.avatar;
+    }
+
+    function onAdminTeacherChanged() {
+      const select = document.getElementById('admin-teacher-select');
+      if (select) {
+        activeAdminTeacherId = select.value;
+        updateAdminTeacherProfileHeader();
+        renderAdminView();
+      }
+    }
+
+    /* ==========================================================
+       6. STUDENT SCHEDULE RENDERING (FRONTEND)
+       ========================================================== */
+    function renderStudentSchedule() {
+      const grid = document.getElementById('student-slots-grid');
+      const emptyState = document.getElementById('student-empty-state');
+      const countBadge = document.getElementById('slots-count-badge');
+      const teacherFilter = document.getElementById('student-filter-teacher')?.value || 'ALL';
+      const statusFilter = document.getElementById('student-filter-status')?.value || 'AVAILABLE';
+
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      let matchingSlots = [];
+
+      teachers.forEach(teacher => {
+        if (teacherFilter !== 'ALL' && teacher.id !== teacherFilter) return;
+
+        TIME_SLOTS.forEach(slot => {
+          const slotKey = `${teacher.id}_${selectedDateStr}_${slot.id}`;
+          const isOpen = availability[slotKey] === true;
+
+          if (isOpen) {
+            const bookedList = bookings[slotKey] || [];
+            const count = bookedList.length;
+            const isFull = count >= MAX_STUDENTS_PER_SLOT;
+            const remaining = MAX_STUDENTS_PER_SLOT - count;
+
+            if (statusFilter === 'AVAILABLE' && isFull) return;
+            if (statusFilter === 'FULL' && !isFull) return;
+
+            matchingSlots.push({
+              key: slotKey,
+              teacher,
+              slot,
+              bookedList,
+              count,
+              isFull,
+              remaining
+            });
+          }
+        });
+      });
+
+      if (countBadge) {
+        countBadge.textContent = `共 ${matchingSlots.length} 個時段開放`;
+      }
+
+      if (matchingSlots.length === 0) {
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+      }
+      if (emptyState) emptyState.classList.add('hidden');
+
+      matchingSlots.forEach(item => {
+        const card = document.createElement('div');
+        card.className = `p-4 rounded-2xl border transition-all duration-200 bg-white shadow-sm flex flex-col justify-between ${
+          item.isFull ? 'border-slate-200 opacity-80' : 'border-sky-100 hover:border-sky-300 hover:shadow-md'
+        }`;
+
+        let quotaBadgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        let quotaText = `尚餘 ${item.remaining} 名額`;
+        if (item.isFull) {
+          quotaBadgeClass = 'bg-rose-50 text-rose-700 border-rose-200';
+          quotaText = '已額滿 (3/3)';
+        } else if (item.remaining === 1) {
+          quotaBadgeClass = 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse';
+          quotaText = '最後 1 名額！';
+        }
+
+        const enrolledBadges = item.bookedList.map(st => 
+          `<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">${st.zhName} (${st.enName}) · ${st.branchName}</span>`
+        ).join('');
+
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100">
+              <div class="flex items-center gap-3">
+                <img src="${item.teacher.avatar}" alt="${item.teacher.name}" class="w-12 h-12 rounded-full object-cover border-2 border-sky-100 shadow-sm" onerror="this.src='https://placehold.co/100x100?text=Teacher'">
+                <div>
+                  <h4 class="text-sm font-bold text-slate-900">${item.teacher.name}</h4>
+                  <p class="text-[11px] text-slate-500 font-medium">${item.teacher.tag || '專任英語口說師資'}</p>
+                </div>
+              </div>
+              <span class="text-[11px] font-bold px-2.5 py-1 rounded-full border ${quotaBadgeClass}">${quotaText}</span>
+            </div>
+
+            <div class="flex items-center gap-2 text-xs font-mono font-bold text-sky-800 bg-sky-50/70 px-3 py-2 rounded-xl mb-3 border border-sky-100/60">
+              <svg class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span>${selectedDateStr} (${item.slot.label})</span>
+            </div>
+
+            <div class="mb-4">
+              <p class="text-[11px] font-bold text-slate-500 mb-1.5 flex items-center justify-between">
+                <span>目前已報名學生 (${item.count}/${MAX_STUDENTS_PER_SLOT})</span>
+              </p>
+              <div class="flex flex-wrap gap-1.5 min-h-[24px]">
+                ${enrolledBadges || '<span class="text-[11px] text-slate-400">目前尚無人報名，歡迎搶先預約！</span>'}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            ${
+              item.isFull
+                ? `<button disabled class="w-full py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 cursor-not-allowed">本時段名額已滿</button>`
+                : `<button onclick="openBookingModal('${item.key}')" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-sm shadow-sky-600/20 transition flex items-center justify-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                    立即填表報名
+                  </button>`
+            }
+          </div>
+        `;
+
+        grid.appendChild(card);
+      });
+    }
+
+    /* ==========================================================
+       7. BOOKING MODAL ACTIONS
+       ========================================================== */
+    function parseSlotKey(slotKey) {
+      // Slot key format: ${teacherId}_${dateStr}_${timeSlot}
+      // dateStr is YYYY-MM-DD (10 chars), timeSlot is HH:MM-HH:MM (11 chars)
+      const lastUnderscore = slotKey.lastIndexOf('_');
+      const timeSlot = slotKey.substring(lastUnderscore + 1);
+      const remaining = slotKey.substring(0, lastUnderscore);
+      const secondLastUnderscore = remaining.lastIndexOf('_');
+      const dateStr = remaining.substring(secondLastUnderscore + 1);
+      const teacherId = remaining.substring(0, secondLastUnderscore);
+      return { teacherId, dateStr, timeSlot };
+    }
+
+    function openBookingModal(slotKey) {
+      const { teacherId, dateStr, timeSlot } = parseSlotKey(slotKey);
+
+      const teacher = teachers.find(t => t.id === teacherId);
+      if (!teacher) {
+        showToast('找不到該外師資料，請重新整理頁面！', 'error');
+        return;
+      }
+
+      const bookedList = bookings[slotKey] || [];
+      const remaining = MAX_STUDENTS_PER_SLOT - bookedList.length;
+
+      if (remaining <= 0) {
+        showToast('該時段名額已滿，無法再報名！', 'warning');
+        return;
+      }
+
+      document.getElementById('book-slot-key').value = slotKey;
+      document.getElementById('modal-teacher-img').src = teacher.avatar;
+      document.getElementById('modal-teacher-name').textContent = teacher.name;
+      document.getElementById('modal-time-slot').textContent = `${dateStr}  ${timeSlot} (30 分鐘)`;
+      document.getElementById('modal-quota-text').textContent = `名額：尚餘 ${remaining} 位空位`;
+
+      document.getElementById('booking-modal').classList.remove('hidden');
+    }
+
+    function closeBookingModal() {
+      const modal = document.getElementById('booking-modal');
+      if (modal) modal.classList.add('hidden');
+      const form = document.getElementById('booking-form');
+      if (form) form.reset();
+    }
+
+    function handleBookingSubmit(e) {
+      e.preventDefault();
+      const slotKey = document.getElementById('book-slot-key').value;
+      const zhName = document.getElementById('reg-zh-name').value.trim();
+      const enName = document.getElementById('reg-en-name').value.trim();
+      const branchName = document.getElementById('reg-branch-name').value.trim();
+      const contactTeacher = document.getElementById('reg-contact-teacher').value.trim();
+
+      if (!slotKey || !zhName || !enName || !branchName || !contactTeacher) {
+        showToast('請務必填寫完整的四項報名資料！', 'warning');
+        return;
+      }
+
+      if (!bookings[slotKey]) {
+        bookings[slotKey] = [];
+      }
+
+      if (bookings[slotKey].length >= MAX_STUDENTS_PER_SLOT) {
+        showToast('很抱歉，該時段名額已滿！', 'error');
+        closeBookingModal();
+        return;
+      }
+
+      // Check duplicates in the same slot
+      const exists = bookings[slotKey].some(s => s.zhName === zhName || s.enName.toLowerCase() === enName.toLowerCase());
+      if (exists) {
+        showToast('該學生姓名在此時段已有預約紀錄！', 'warning');
+        return;
+      }
+
+      const { teacherId, dateStr, timeSlot } = parseSlotKey(slotKey);
+      const newBooking = {
+        id: 'b' + Date.now() + Math.random().toString(36).substr(2, 4),
+        zhName,
+        enName,
+        branchName,
+        contactTeacher,
+        teacherId,
+        dateStr,
+        timeSlot,
+        timestamp: Date.now()
+      };
+
+      bookings[slotKey].push(newBooking);
+
+      closeBookingModal();
+      renderStudentSchedule();
+      if (currentView === 'mybookings') listAllUpcomingBookings();
+      if (currentView === 'admin') renderAdminView();
+
+      showToast(`預約成功！已登記學生：${zhName} (${enName})`, 'success');
+      pushCloudData();
+    }
+
+    /* ==========================================================
+       8. MY BOOKINGS / STUDENT QUERY & CANCEL
+       ========================================================== */
+    function searchStudentBookings() {
+      const q = document.getElementById('mybooking-search-input')?.value.trim().toLowerCase();
+      renderBookingsTable(q);
+    }
+
+    function listAllUpcomingBookings() {
+      const searchInput = document.getElementById('mybooking-search-input');
+      if (searchInput) searchInput.value = '';
+      renderBookingsTable('');
+    }
+
+    function renderBookingsTable(query = '') {
+      const tbody = document.getElementById('mybooking-table-body');
+      const badge = document.getElementById('mybooking-count-badge');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      let list = [];
+      Object.keys(bookings).forEach(slotKey => {
+        const studentArr = bookings[slotKey] || [];
+        studentArr.forEach(st => {
+          list.push({ ...st, slotKey });
+        });
+      });
+
+      // Sort by date, then by timeslot
+      list.sort((a, b) => {
+        if (a.dateStr !== b.dateStr) return a.dateStr.localeCompare(b.dateStr);
+        return a.timeSlot.localeCompare(b.timeSlot);
+      });
+
+      if (query) {
+        list = list.filter(item => 
+          (item.zhName && item.zhName.toLowerCase().includes(query)) ||
+          (item.enName && item.enName.toLowerCase().includes(query)) ||
+          (item.branchName && item.branchName.toLowerCase().includes(query)) ||
+          (item.contactTeacher && item.contactTeacher.toLowerCase().includes(query))
+        );
+      }
+
+      if (badge) {
+        badge.textContent = `共 ${list.length} 筆預約`;
+      }
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">目前查無符合的學生預約紀錄。</td></tr>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const teacher = teachers.find(t => t.id === item.teacherId) || { name: '外籍師資' };
+        const sameSlotCount = (bookings[item.slotKey] || []).length;
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-mono font-bold text-sky-800">${item.dateStr} <span class="text-slate-600 font-normal">(${item.timeSlot})</span></td>
+          <td class="py-3 px-4 font-semibold text-slate-800">${teacher.name}</td>
+          <td class="py-3 px-4"><span class="font-bold text-slate-900">${item.zhName}</span> <span class="text-xs text-slate-500 font-normal">(${item.enName})</span></td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-semibold">${item.branchName}</span> <span class="text-xs text-slate-500 ml-1">/ ${item.contactTeacher}</span></td>
+          <td class="py-3 px-4"><span class="font-bold text-emerald-700">${sameSlotCount}</span> / 3 人</td>
+          <td class="py-3 px-4 text-center">
+            <button onclick="confirmDropStudent('${item.slotKey}', '${item.id}', '${item.zhName}')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition border border-rose-200">
+              退選釋出
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function confirmDropStudent(slotKey, bookingId, studentName) {
+      if (!bookings[slotKey]) return;
+
+      const idx = bookings[slotKey].findIndex(b => b.id === bookingId);
+      if (idx !== -1) {
+        bookings[slotKey].splice(idx, 1);
+        if (bookings[slotKey].length === 0) {
+          delete bookings[slotKey];
+        }
+
+        showToast(`已成功為學生【${studentName}】辦理退選，時段名額已即時釋出！`, 'success');
+        
+        renderBookingsTable(document.getElementById('mybooking-search-input')?.value.trim().toLowerCase());
+        renderStudentSchedule();
+        if (currentView === 'admin') renderAdminView();
+
+        pushCloudData(true);
+      }
+    }
+
+    /* ==========================================================
+       9. ADMIN SHIFT MANAGEMENT & ENROLLED ROSTER
+       ========================================================== */
+    function renderAdminView() {
+      updateAdminTeacherProfileHeader();
+      renderWeekdayTabs();
+
+      const matrixContainer = document.getElementById('admin-slots-matrix');
+      const rosterTbody = document.getElementById('admin-enrolled-table-body');
+      const totalEnrolledBadge = document.getElementById('admin-total-enrolled-badge');
+      const matrixTitle = document.getElementById('admin-matrix-title');
+
+      if (matrixTitle) {
+        matrixTitle.textContent = `${selectedDateStr} 排班設定矩陣`;
+      }
+
+      if (!matrixContainer) return;
+      matrixContainer.innerHTML = '';
+
+      TIME_SLOTS.forEach(slot => {
+        const slotKey = `${activeAdminTeacherId}_${selectedDateStr}_${slot.id}`;
+        const isOpen = availability[slotKey] === true;
+        const booked = bookings[slotKey] || [];
+        const count = booked.length;
+
+        let btnClass = 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300';
+        let statusText = '未開課';
+        let badgeClass = 'bg-slate-200 text-slate-600';
+
+        if (isOpen) {
+          if (count > 0) {
+            btnClass = 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100';
+            statusText = `已報名 ${count}/3`;
+            badgeClass = 'bg-emerald-200 text-emerald-800';
+          } else {
+            btnClass = 'bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100';
+            statusText = '開放預約 (0/3)';
+            badgeClass = 'bg-sky-200 text-sky-800';
+          }
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.onclick = () => toggleAdminSlot(slotKey);
+        btn.className = `p-3 rounded-xl border text-left transition flex flex-col justify-between ${btnClass}`;
+        btn.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-mono font-bold text-xs">${slot.label}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${badgeClass}">${statusText}</span>
+          </div>
+          <p class="text-[10px] opacity-75 mt-2">點擊切換狀態</p>
+        `;
+        matrixContainer.appendChild(btn);
+      });
+
+      // Render Admin Week Roster for this teacher
+      if (!rosterTbody) return;
+      rosterTbody.innerHTML = '';
+
+      const weekDays = getWeekDaysFromMonday(currentMonday);
+      const weekDateStrs = weekDays.map(d => d.dateStr);
+
+      let teacherWeekBookings = [];
+      Object.keys(bookings).forEach(key => {
+        const { teacherId, dateStr } = parseSlotKey(key);
+        if (teacherId === activeAdminTeacherId && weekDateStrs.includes(dateStr)) {
+          (bookings[key] || []).forEach(st => {
+            teacherWeekBookings.push({ ...st, slotKey: key });
+          });
+        }
+      });
+
+      if (totalEnrolledBadge) {
+        totalEnrolledBadge.textContent = `本週共 ${teacherWeekBookings.length} 位學生報名`;
+      }
+
+      if (teacherWeekBookings.length === 0) {
+        rosterTbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400">目前本週尚無預約名單。</td></tr>`;
+        return;
+      }
+
+      teacherWeekBookings.sort((a, b) => {
+        if (a.dateStr !== b.dateStr) return a.dateStr.localeCompare(b.dateStr);
+        return a.timeSlot.localeCompare(b.timeSlot);
+      });
+
+      teacherWeekBookings.forEach(st => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-mono font-bold text-sky-800">${st.dateStr} <span class="text-slate-600 font-normal">(${st.timeSlot})</span></td>
+          <td class="py-3 px-4 font-bold text-slate-900">${st.zhName}</td>
+          <td class="py-3 px-4 font-semibold text-slate-700">${st.enName}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-semibold">${st.branchName}</span></td>
+          <td class="py-3 px-4 text-slate-600">${st.contactTeacher}</td>
+          <td class="py-3 px-4 text-center">
+            <button onclick="confirmDropStudent('${st.slotKey}', '${st.id}', '${st.zhName}')" class="px-2.5 py-1 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded border border-rose-200">
+              退選除名
+            </button>
+          </td>
+        `;
+        rosterTbody.appendChild(tr);
+      });
+    }
+
+    function toggleAdminSlot(slotKey) {
+      const booked = bookings[slotKey] || [];
+      const isOpen = availability[slotKey] === true;
+
+      if (isOpen) {
+        if (booked.length > 0) {
+          showToast(`此時段已有 ${booked.length} 位學生報名，若要取消開課請先於下方名冊辦理退選！`, 'warning');
+          return;
+        }
+        delete availability[slotKey];
+        showToast('時段已關閉！', 'info');
+      } else {
+        availability[slotKey] = true;
+        showToast('時段已開放報名！', 'success');
+      }
+
+      renderAdminView();
+      renderStudentSchedule();
+      pushCloudData(true);
+    }
+
+    function bulkToggleAdminDay(openAll) {
+      TIME_SLOTS.forEach(slot => {
+        const slotKey = `${activeAdminTeacherId}_${selectedDateStr}_${slot.id}`;
+        const booked = bookings[slotKey] || [];
+
+        if (openAll) {
+          availability[slotKey] = true;
+        } else {
+          if (booked.length === 0) {
+            delete availability[slotKey];
+          }
+        }
+      });
+
+      renderAdminView();
+      renderStudentSchedule();
+      showToast(openAll ? '已開放今日所有時段！' : '已關閉今日無人報名之時段！', 'info');
+      pushCloudData(true);
+    }
+
+    /* ==========================================================
+       10. STATISTICS REPORTING & ANALYTICS
+       ========================================================== */
+    function initStatsDateRange() {
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      const startInput = document.getElementById('stats-start-date');
+      const endInput = document.getElementById('stats-end-date');
+      if (startInput) startInput.value = formatDateIso(firstDay);
+      if (endInput) endInput.value = formatDateIso(lastDay);
+    }
+
+    function onQuickRangeChange() {
+      const val = document.getElementById('stats-quick-range')?.value;
+      const now = new Date();
+      let startD = new Date();
+      let endD = new Date();
+
+      if (val === 'current-month') {
+        startD = new Date(now.getFullYear(), now.getMonth(), 1);
+        endD = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      } else if (val === 'next-month') {
+        startD = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        endD = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+      } else if (val === 'recent-30') {
+        startD = new Date();
+        startD.setDate(now.getDate() - 30);
+        endD = new Date();
+      } else if (val === 'all-records') {
+        startD = new Date(2025, 0, 1);
+        endD = new Date(2030, 11, 31);
+      }
+
+      const startInput = document.getElementById('stats-start-date');
+      const endInput = document.getElementById('stats-end-date');
+      if (startInput) startInput.value = formatDateIso(startD);
+      if (endInput) endInput.value = formatDateIso(endD);
+
+      refreshStatisticsReport();
+    }
+
+    function calculateStatsData(startDate, endDate) {
+      let totalSlots = 0;
+      let totalHours = 0;
+      let studentSessionCount = 0;
+      const uniqueStudents = new Set();
+
+      const teacherStats = {};
+      teachers.forEach(t => {
+        teacherStats[t.id] = {
+          name: t.name,
+          slotCount: 0,
+          totalHours: 0,
+          studentSessionCount: 0
+        };
+      });
+
+      const studentStats = {};
+
+      Object.keys(bookings).forEach(key => {
+        const { teacherId, dateStr } = parseSlotKey(key);
+
+        if (dateStr >= startDate && dateStr <= endDate) {
+          const list = bookings[key] || [];
+          if (list.length > 0) {
+            totalSlots++;
+            totalHours += 0.5;
+
+            if (teacherStats[teacherId]) {
+              teacherStats[teacherId].slotCount++;
+              teacherStats[teacherId].totalHours += 0.5;
+              teacherStats[teacherId].studentSessionCount += list.length;
+            }
+
+            list.forEach(st => {
+              studentSessionCount++;
+              const studentKey = `${st.zhName}_${st.branchName}`;
+              uniqueStudents.add(studentKey);
+
+              if (!studentStats[studentKey]) {
+                studentStats[studentKey] = {
+                  zhName: st.zhName,
+                  enName: st.enName,
+                  branchName: st.branchName,
+                  contactTeacher: st.contactTeacher,
+                  sessionCount: 0
+                };
+              }
+              studentStats[studentKey].sessionCount++;
+            });
+          }
+        }
+      });
+
+      const maxPossibleSeats = totalSlots * MAX_STUDENTS_PER_SLOT;
+      const fillRate = maxPossibleSeats > 0 ? Math.round((studentSessionCount / maxPossibleSeats) * 100) : 0;
+
+      return {
+        totalSlots,
+        totalHours,
+        studentSessionCount,
+        uniqueStudentsCount: uniqueStudents.size,
+        fillRate,
+        teacherStats,
+        studentStats
+      };
+    }
+
+    function refreshStatisticsReport() {
+      const startDate = document.getElementById('stats-start-date')?.value || '2026-01-01';
+      const endDate = document.getElementById('stats-end-date')?.value || '2026-12-31';
+      const data = calculateStatsData(startDate, endDate);
+
+      document.getElementById('kpi-total-slots').textContent = `${data.totalSlots} 節`;
+      document.getElementById('kpi-total-hours').textContent = `${data.totalHours.toFixed(1)} 小時`;
+      document.getElementById('kpi-student-sessions').textContent = `${data.studentSessionCount} 人次`;
+      document.getElementById('kpi-unique-students').textContent = `${data.uniqueStudentsCount} 位`;
+      document.getElementById('kpi-fill-rate').textContent = `${data.fillRate}%`;
+
+      // Render Teachers Table
+      const teacherTbody = document.getElementById('stats-teacher-tbody');
+      if (teacherTbody) {
+        teacherTbody.innerHTML = '';
+        Object.values(data.teacherStats).forEach(t => {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+          tr.innerHTML = `
+            <td class="py-2.5 px-3 font-bold text-slate-800">${t.name}</td>
+            <td class="py-2.5 px-3 text-center font-bold text-sky-700">${t.slotCount} 堂</td>
+            <td class="py-2.5 px-3 text-center text-slate-700 font-semibold">${t.totalHours.toFixed(1)} hrs</td>
+            <td class="py-2.5 px-3 text-center font-bold text-emerald-700">${t.studentSessionCount} 人次</td>
+          `;
+          teacherTbody.appendChild(tr);
+        });
+      }
+
+      // Render Students Table
+      const studentTbody = document.getElementById('stats-student-tbody');
+      if (studentTbody) {
+        studentTbody.innerHTML = '';
+        const sortedStudents = Object.values(data.studentStats).sort((a, b) => b.sessionCount - a.sessionCount);
+        if (sortedStudents.length === 0) {
+          studentTbody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-slate-400">區間內尚無學生上課紀錄。</td></tr>`;
+        } else {
+          sortedStudents.forEach(st => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+            tr.innerHTML = `
+              <td class="py-2 px-3 font-bold text-slate-800">${st.zhName}</td>
+              <td class="py-2 px-3 text-slate-600">${st.enName}</td>
+              <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px]">${st.branchName}</span></td>
+              <td class="py-2 px-3 text-center font-bold text-indigo-700">${st.sessionCount} 堂</td>
+            `;
+            studentTbody.appendChild(tr);
+          });
+        }
+      }
+
+      // Render Chart.js Visuals
+      renderCharts(data);
+    }
+
+    function renderCharts(data) {
+      if (!window.Chart) return;
+
+      // 1. Teacher Load Chart
+      const teacherLabels = Object.values(data.teacherStats).map(t => t.name.split(' ')[1] || t.name);
+      const teacherSlots = Object.values(data.teacherStats).map(t => t.slotCount);
+
+      const ctxT = document.getElementById('teacherLoadChart');
+      if (ctxT) {
+        if (teacherChartInstance) teacherChartInstance.destroy();
+        teacherChartInstance = new Chart(ctxT, {
+          type: 'bar',
+          data: {
+            labels: teacherLabels,
+            datasets: [{
+              label: '開課堂數 (30m/節)',
+              data: teacherSlots,
+              backgroundColor: '#0284c7',
+              borderRadius: 8
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        });
+      }
+
+      // 2. Student Frequency Chart (Top 8)
+      const topStudents = Object.values(data.studentStats)
+        .sort((a, b) => b.sessionCount - a.sessionCount)
+        .slice(0, 8);
+      const studentLabels = topStudents.map(s => s.zhName);
+      const studentCounts = topStudents.map(s => s.sessionCount);
+
+      const ctxS = document.getElementById('studentFreqChart');
+      if (ctxS) {
+        if (studentChartInstance) studentChartInstance.destroy();
+        studentChartInstance = new Chart(ctxS, {
+          type: 'bar',
+          data: {
+            labels: studentLabels.length > 0 ? studentLabels : ['尚無資料'],
+            datasets: [{
+              label: '上課次數',
+              data: studentCounts.length > 0 ? studentCounts : [0],
+              backgroundColor: '#4f46e5',
+              borderRadius: 8
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        });
+      }
+    }
+
+    function exportStatisticsExcel() {
+      const startDate = document.getElementById('stats-start-date')?.value || '2026-01-01';
+      const endDate = document.getElementById('stats-end-date')?.value || '2026-12-31';
+      const data = calculateStatsData(startDate, endDate);
+
+      let csv = '\uFEFF'; // UTF-8 BOM so Excel opens Chinese characters properly
+      csv += `精英國際教育 EliteTalk 外師口說課統計報表 (${startDate} ~ ${endDate})\n\n`;
+
+      // Section 1: Summary KPIs
+      csv += `【一、總體指標摘要】\n`;
+      csv += `外師開課節數,總授課時數(小時),學生上課總人次,不重複學生人數,滿班率\n`;
+      csv += `${data.totalSlots},${data.totalHours.toFixed(1)},${data.studentSessionCount},${data.uniqueStudentsCount},${data.fillRate}%\n\n`;
+
+      // Section 2: Teacher Breakdown
+      csv += `【二、外師授課時數與節數統計】\n`;
+      csv += `外師姓名,授課節數(30分/節),總授課時數(小時),指導學生人次\n`;
+      Object.values(data.teacherStats).forEach(t => {
+        csv += `"${t.name}",${t.slotCount},${t.totalHours.toFixed(1)},${t.studentSessionCount}\n`;
+      });
+      csv += `\n`;
+
+      // Section 3: Student Attendance Breakdown
+      csv += `【三、學生上課次數統計】\n`;
+      csv += `學生中文姓名,學生英文姓名,所屬分校,負責聯絡中師,累積上課堂數\n`;
+      Object.values(data.studentStats)
+        .sort((a, b) => b.sessionCount - a.sessionCount)
+        .forEach(s => {
+          csv += `"${s.zhName}","${s.enName}","${s.branchName}","${s.contactTeacher || ''}",${s.sessionCount}\n`;
+        });
+      csv += `\n`;
+
+      // Section 4: Detailed Chronological Lesson Log
+      csv += `【四、詳細上課預約明細紀錄】\n`;
+      csv += `上課日期,上課時段,外師姓名,學生中文姓名,學生英文姓名,所屬分校,負責聯絡中師\n`;
+
+      const detailedRows = [];
+      Object.keys(bookings).forEach(key => {
+        const { teacherId, dateStr, timeSlot } = parseSlotKey(key);
+        if (dateStr >= startDate && dateStr <= endDate) {
+          const tObj = teachers.find(t => t.id === teacherId);
+          const tName = tObj ? tObj.name : teacherId;
+          (bookings[key] || []).forEach(st => {
+            detailedRows.push({
+              dateStr,
+              timeSlot,
+              tName,
+              zhName: st.zhName,
+              enName: st.enName,
+              branchName: st.branchName,
+              contactTeacher: st.contactTeacher
+            });
+          });
+        }
+      });
+
+      detailedRows.sort((a, b) => {
+        if (a.dateStr !== b.dateStr) return a.dateStr.localeCompare(b.dateStr);
+        return a.timeSlot.localeCompare(b.timeSlot);
+      });
+
+      detailedRows.forEach(r => {
+        csv += `"${r.dateStr}","${r.timeSlot}","${r.tName}","${r.zhName}","${r.enName}","${r.branchName}","${r.contactTeacher}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EliteTalk_口說課統計報表_${startDate}_至_${endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('統計報表 (Excel CSV) 已成功匯出下載！', 'success');
+    }
+
+    function triggerReminderModal() {
+      document.getElementById('reminder-modal')?.classList.remove('hidden');
+    }
+
+    function closeReminderModal() {
+      document.getElementById('reminder-modal')?.classList.add('hidden');
+    }
+
+    /* ==========================================================
+       11. TEACHER PROFILE MODAL (WITH COMPACT AVATAR STREAMING)
+       ========================================================== */
+    function compressImageFile(file, maxWidth = 96, maxHeight = 96, quality = 0.72) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = function(e) {
+          const img = new Image();
+          img.onerror = reject;
+          img.onload = function() {
+            const minDim = Math.min(img.width, img.height);
+            const cropX = (img.width - minDim) / 2;
+            const cropY = (img.height - minDim) / 2;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = maxWidth;
+            canvas.height = maxHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, cropX, cropY, minDim, minDim, 0, 0, maxWidth, maxHeight);
+            
+            // Keep avatar under 3.2KB so it streams effortlessly over any cloud channel
+            let q = quality;
+            let dataUrl = canvas.toDataURL('image/jpeg', q);
+            while (dataUrl.length > 3400 && q > 0.35) {
+              q -= 0.1;
+              dataUrl = canvas.toDataURL('image/jpeg', q);
+            }
+            resolve(dataUrl);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function openTeacherModal() {
+      const currentTeacher = teachers.find(t => t.id === activeAdminTeacherId);
+      if (currentTeacher) {
+        const currentAvatar = customAvatars[currentTeacher.id] || currentTeacher.avatar;
+        document.getElementById('t-form-name').value = currentTeacher.name;
+        document.getElementById('t-form-tag').value = currentTeacher.tag;
+        document.getElementById('t-form-photo').value = currentAvatar;
+        document.getElementById('t-form-photo-url').value = currentAvatar.startsWith('data:') ? '' : currentAvatar;
+        document.getElementById('t-form-preview').src = currentAvatar;
+        document.getElementById('t-form-bio').value = currentTeacher.bio;
+        document.getElementById('t-form-file').value = '';
+        document.getElementById('t-form-file-name').textContent = currentAvatar.startsWith('data:') 
+          ? '已使用自訂上傳相片' 
+          : '使用預設圖片';
+      }
+      document.getElementById('teacher-modal').classList.remove('hidden');
+    }
+
+    async function onTeacherFileSelected(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      if (!file.type.match(/^image\/(png|jpeg|jpg|webp|gif)$/i)) {
+        showToast('請上傳 JPG、PNG、WebP 或 GIF 格式之圖檔！', 'warning');
+        return;
+      }
+
+      try {
+        isImageProcessing = true;
+        const compressedBase64 = await compressImageFile(file, 96, 96, 0.72);
+        document.getElementById('t-form-photo').value = compressedBase64;
+        document.getElementById('t-form-preview').src = compressedBase64;
+        document.getElementById('t-form-file-name').textContent = `已就緒：${file.name}`;
+        document.getElementById('t-form-photo-url').value = '';
+        isImageProcessing = false;
+        showToast('相片處理完成！點擊「儲存外師資料」即可永久同步。', 'success');
+      } catch (err) {
+        isImageProcessing = false;
+        showToast('圖片處理失敗，請更換圖檔重試！', 'error');
+      }
+    }
+
+    function onTeacherUrlInput(event) {
+      const url = event.target.value.trim();
+      if (url) {
+        document.getElementById('t-form-photo').value = url;
+        document.getElementById('t-form-preview').src = url;
+        document.getElementById('t-form-file-name').textContent = '使用自訂網址圖片';
+      }
+    }
+
+    function closeTeacherModal() {
+      document.getElementById('teacher-modal').classList.add('hidden');
+    }
+
+    async function handleTeacherProfileSubmit(event) {
+      event.preventDefault();
+      if (isImageProcessing) {
+        showToast('相片尚在處理中，請稍候一秒再按儲存', 'warning');
+        return;
+      }
+      const name = document.getElementById('t-form-name').value.trim();
+      const tag = document.getElementById('t-form-tag').value.trim();
+      let photo = document.getElementById('t-form-photo').value.trim();
+      const bio = document.getElementById('t-form-bio').value.trim();
+
+      if (!name) return;
+      if (!photo) {
+        photo = `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2))}`;
+      }
+
+      const idx = teachers.findIndex(t => t.id === activeAdminTeacherId);
+      if (idx !== -1) {
+        const tid = teachers[idx].id;
+        if (photo.startsWith('data:image')) {
+          customAvatars[tid] = photo;
+          pushAvatarForTeacher(tid, photo);
+        } else {
+          delete customAvatars[tid];
+        }
+        teachers[idx] = {
+          ...teachers[idx],
+          name,
+          tag,
+          avatar: photo,
+          bio,
+          hasCustomAvatar: photo.startsWith('data:image')
+        };
+      }
+
+      closeTeacherModal();
+      populateAdminTeacherSelector();
+      populateTeacherFilterOptions();
+      renderAdminView();
+      renderStudentSchedule();
+
+      showToast(`外師 ${name} 資料與相片已更新並同步至雲端！`, 'success');
+      await pushCloudData(true);
+    }
+
+    /* ==========================================================
+       11.1 ADD NEW TEACHER & DELETE TEACHER
+       ========================================================== */
+    function openAddTeacherModal() {
+      const form = document.getElementById('add-teacher-form');
+      if (form) form.reset();
+      document.getElementById('add-t-preview').src = 'https://placehold.co/100x100/0284c7/ffffff?text=New+Teacher';
+      document.getElementById('add-t-file-name').textContent = '未選擇檔案 (將使用預設頭像)';
+      document.getElementById('add-t-photo').value = '';
+      document.getElementById('add-teacher-modal')?.classList.remove('hidden');
+    }
+
+    function closeAddTeacherModal() {
+      document.getElementById('add-teacher-modal')?.classList.add('hidden');
+    }
+
+    async function onNewTeacherFileSelected(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      if (!file.type.match(/^image\/(png|jpeg|jpg|webp|gif)$/i)) {
+        showToast('請上傳 JPG、PNG、WebP 或 GIF 格式之圖檔！', 'warning');
+        return;
+      }
+
+      try {
+        isImageProcessing = true;
+        const compressedBase64 = await compressImageFile(file, 96, 96, 0.72);
+        document.getElementById('add-t-photo').value = compressedBase64;
+        document.getElementById('add-t-preview').src = compressedBase64;
+        document.getElementById('add-t-file-name').textContent = `已就緒：${file.name}`;
+        document.getElementById('add-t-photo-url').value = '';
+        isImageProcessing = false;
+      } catch (err) {
+        isImageProcessing = false;
+        showToast('圖片處理失敗，請更換圖檔重試！', 'error');
+      }
+    }
+
+    function onNewTeacherUrlInput(event) {
+      const url = event.target.value.trim();
+      if (url) {
+        document.getElementById('add-t-photo').value = url;
+        document.getElementById('add-t-preview').src = url;
+        document.getElementById('add-t-file-name').textContent = '使用自訂網址圖片';
+      }
+    }
+
+    async function handleAddTeacherSubmit(event) {
+      event.preventDefault();
+      if (isImageProcessing) {
+        showToast('相片尚在處理中，請稍候一秒再按建立', 'warning');
+        return;
+      }
+      const name = document.getElementById('add-t-name').value.trim();
+      const tag = document.getElementById('add-t-tag').value.trim();
+      let photo = document.getElementById('add-t-photo').value.trim();
+      const bio = document.getElementById('add-t-bio').value.trim();
+
+      if (!name) {
+        showToast('請填寫外師姓名！', 'warning');
+        return;
+      }
+
+      if (!photo) {
+        photo = `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2).toUpperCase())}`;
+      }
+
+      const newTeacherId = 't' + Date.now();
+      if (photo.startsWith('data:image')) {
+        customAvatars[newTeacherId] = photo;
+        pushAvatarForTeacher(newTeacherId, photo);
+      }
+
+      const newTeacher = {
+        id: newTeacherId,
+        name,
+        tag: tag || '專任英語口說師資',
+        avatar: photo,
+        bio: bio || '熱愛英語教學，引導學生自然開口。',
+        hasCustomAvatar: photo.startsWith('data:image')
+      };
+
+      teachers.push(newTeacher);
+      activeAdminTeacherId = newTeacherId;
+
+      closeAddTeacherModal();
+      populateAdminTeacherSelector();
+      populateTeacherFilterOptions();
+      renderAdminView();
+      renderStudentSchedule();
+
+      showToast(`成功新增外師：${name}！已同步至雲端。`, 'success');
+      await pushCloudData(true);
+    }
+
+    let teacherIdPendingDelete = null;
+
+    function promptDeleteCurrentTeacher() {
+      const select = document.getElementById('admin-teacher-select');
+      if (select && select.value) {
+        activeAdminTeacherId = select.value;
+      }
+
+      if (teachers.length <= 1) {
+        showToast('系統至少需保留 1 位外師，無法全部刪除！', 'warning');
+        return;
+      }
+
+      const teacher = teachers.find(t => t.id === activeAdminTeacherId);
+      if (!teacher) {
+        showToast('找不到目前選取的外師，請重新選擇！', 'error');
+        return;
+      }
+
+      let hasBookings = false;
+      Object.keys(bookings).forEach(key => {
+        const { teacherId } = parseSlotKey(key);
+        if (teacherId === teacher.id && (bookings[key] || []).length > 0) {
+          hasBookings = true;
+        }
+      });
+
+      if (hasBookings) {
+        showToast(`外師【${teacher.name}】目前已有學生報名課程，若要刪除請先退選所有學生！`, 'error');
+        return;
+      }
+
+      teacherIdPendingDelete = teacher.id;
+      const targetNameEl = document.getElementById('delete-target-teacher-name');
+      if (targetNameEl) targetNameEl.textContent = teacher.name;
+      
+      const modal = document.getElementById('delete-teacher-modal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeDeleteTeacherModal() {
+      teacherIdPendingDelete = null;
+      const modal = document.getElementById('delete-teacher-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function executeDeleteTeacher() {
+      const targetId = teacherIdPendingDelete || activeAdminTeacherId;
+      const teacher = teachers.find(t => t.id === targetId);
+      if (!teacher) {
+        closeDeleteTeacherModal();
+        return;
+      }
+
+      Object.keys(availability).forEach(key => {
+        const { teacherId } = parseSlotKey(key);
+        if (teacherId === targetId) {
+          delete availability[key];
+        }
+      });
+
+      Object.keys(bookings).forEach(key => {
+        const { teacherId } = parseSlotKey(key);
+        if (teacherId === targetId) {
+          delete bookings[key];
+        }
+      });
+
+      delete customAvatars[targetId];
+      teachers = teachers.filter(t => t.id !== targetId);
+      activeAdminTeacherId = teachers[0].id;
+
+      closeDeleteTeacherModal();
+      populateAdminTeacherSelector();
+      populateTeacherFilterOptions();
+      renderAdminView();
+      renderStudentSchedule();
+
+      showToast(`已成功移除外師【${teacher.name}】！`, 'info');
+      pushCloudData(true);
+    }
+
+    function deleteCurrentTeacher() {
+      promptDeleteCurrentTeacher();
+    }
+
+    /* ==========================================================
+       12. TOAST NOTIFICATION
+       ========================================================== */
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      
+      const bgColors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-rose-600 text-white',
+        info: 'bg-slate-800 text-white',
+        warning: 'bg-amber-600 text-white'
+      };
+
+      toast.className = `${bgColors[type] || bgColors.info} px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-medium transform transition-all duration-300 opacity-0 translate-y-2 pointer-events-auto max-w-sm`;
+      
+      let iconSvg = '';
+      if (type === 'success') {
+        iconSvg = `<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`;
+      } else if (type === 'error') {
+        iconSvg = `<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>`;
+      } else {
+        iconSvg = `<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+      }
+
+      toast.innerHTML = `${iconSvg}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => toast.classList.remove('opacity-0', 'translate-y-2'));
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    /* ==========================================================
+       EXPOSE TO WINDOW OBJECT (Guarantee Inline Onclick Works)
+       ========================================================== */
+    window.switchView = switchView;
+    window.openCloudModal = openCloudModal;
+    window.closeCloudModal = closeCloudModal;
+    window.openDeployModal = openDeployModal;
+    window.closeDeployModal = closeDeployModal;
+    window.downloadSelfHtml = downloadSelfHtml;
+    window.togglePasscodeVisibility = togglePasscodeVisibility;
+    window.handlePasscodeSubmit = handlePasscodeSubmit;
+    window.unlockCloudMemory = unlockCloudMemory;
+    window.lockCloudMemory = lockCloudMemory;
+    window.pullCloudData = pullCloudData;
+    window.navigateWeek = navigateWeek;
+    window.jumpToCurrentWeek = jumpToCurrentWeek;
+    window.onDatePickerChanged = onDatePickerChanged;
+    window.renderStudentSchedule = renderStudentSchedule;
+    window.openBookingModal = openBookingModal;
+    window.closeBookingModal = closeBookingModal;
+    window.handleBookingSubmit = handleBookingSubmit;
+    window.searchStudentBookings = searchStudentBookings;
+    window.listAllUpcomingBookings = listAllUpcomingBookings;
+    window.confirmDropStudent = confirmDropStudent;
+    window.renderAdminView = renderAdminView;
+    window.toggleAdminSlot = toggleAdminSlot;
+    window.onAdminTeacherChanged = onAdminTeacherChanged;
+    window.openTeacherModal = openTeacherModal;
+    window.closeTeacherModal = closeTeacherModal;
+    window.handleTeacherProfileSubmit = handleTeacherProfileSubmit;
+    window.onTeacherFileSelected = onTeacherFileSelected;
+    window.onTeacherUrlInput = onTeacherUrlInput;
+    window.openAddTeacherModal = openAddTeacherModal;
+    window.closeAddTeacherModal = closeAddTeacherModal;
+    window.onNewTeacherFileSelected = onNewTeacherFileSelected;
+    window.onNewTeacherUrlInput = onNewTeacherUrlInput;
+    window.handleAddTeacherSubmit = handleAddTeacherSubmit;
+    window.promptDeleteCurrentTeacher = promptDeleteCurrentTeacher;
+    window.closeDeleteTeacherModal = closeDeleteTeacherModal;
+    window.executeDeleteTeacher = executeDeleteTeacher;
+    window.deleteCurrentTeacher = deleteCurrentTeacher;
+    window.bulkToggleAdminDay = bulkToggleAdminDay;
+    window.onQuickRangeChange = onQuickRangeChange;
+    window.refreshStatisticsReport = refreshStatisticsReport;
+    window.exportStatisticsExcel = exportStatisticsExcel;
+    window.triggerReminderModal = triggerReminderModal;
+    window.closeReminderModal = closeReminderModal;
+    window.openDatabaseConfigModal = openDatabaseConfigModal;
+    window.closeDatabaseConfigModal = closeDatabaseConfigModal;
+    window.copySqlSchema = copySqlSchema;
+    window.testDbConnection = testDbConnection;
+    window.handleSaveDbConfig = handleSaveDbConfig;
+
+    function dismissLoaderForcefully() {
+      const loader = document.getElementById('mandatory-cloud-loader');
+      if (loader) {
+        loader.classList.add('opacity-0');
+        setTimeout(() => loader.remove(), 300);
+      }
+    }
+    window.dismissLoaderForcefully = dismissLoaderForcefully;
+
+    /* ==========================================================
+       13. APPLICATION INITIALIZATION (STRICT CLOUD-FIRST BOOT)
+       ========================================================== */
+    window.onload = async function () {
+      const loader = document.getElementById('mandatory-cloud-loader');
+      const statusText = document.getElementById('loader-status-detail');
+      const forceBtn = document.getElementById('loader-force-enter-btn');
+
+      setTimeout(() => {
+        if (forceBtn) forceBtn.classList.remove('hidden');
+      }, 3500);
+
+      // Step 0: Load local cache first as baseline so we never lose existing local work
+      let hadLocalData = false;
+      try {
+        const cached = localStorage.getItem(LS_KEY_DATA);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && (countActiveSlots(parsed.availability) > 0 || (parsed.teachers && parsed.teachers.length > 0))) {
+            applyDataset(parsed, false, '本機快取');
+            hadLocalData = countActiveSlots(parsed.availability) > 0;
+          }
+        }
+      } catch (e) {}
+
+      // Step 1: Initialize Cloud Layers (Supabase & Firebase)
+      initSupabaseFromStorage();
+      await initFirebaseLayer();
+
+      // Step 2: Initialize Calendar UI
+      initStatsDateRange();
+      updateCalendarBanner();
+
+      // Step 3: Pull authoritative data from Global Cloud Stream
+      if (statusText) statusText.textContent = '正在從跨分校雲端同步最新課表、相片與報名名單...';
+      let cloudPulled = false;
+      try {
+        cloudPulled = await pullCloudData(false);
+      } catch (err) {
+        console.warn("Initial cloud pull error:", err);
+      }
+
+      // Step 4: If this device has existing schedule data in LocalStorage that isn't in the new v3 cloud stream yet,
+      // automatically seed the cloud stream so other devices immediately see it!
+      if (!cloudPulled && hadLocalData) {
+        for (const t of teachers) {
+          if (t.avatar && t.avatar.startsWith('data:image')) {
+            await pushAvatarForTeacher(t.id, t.avatar);
+          }
+        }
+        await pushCloudData(true);
+      }
+
+      // Step 5: Smart Date Alignment (If current date has 0 slots, auto-jump to active week like 10/19)
+      alignToActiveScheduleDate();
+
+      // Step 6: Render UI
+      populateTeacherFilterOptions();
+      populateAdminTeacherSelector();
+      switchView('student');
+      updateSyncBadge(true);
+
+      // Step 7: Dismiss loader
+      if (loader) {
+        loader.classList.add('opacity-0');
+        setTimeout(() => loader.remove(), 300);
+      }
+
+      // Step 8: Start continuous background sync (every 5 seconds)
+      if (cloudSyncInterval) clearInterval(cloudSyncInterval);
+      cloudSyncInterval = setInterval(() => {
+        pullCloudData(false);
+      }, 5000);
+    };
+  </script>
+</body>
+</html>
