@@ -85,20 +85,15 @@
               <span id="live-version-badge" class="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 text-slate-600 border border-slate-200" title="目前資料庫最新時間序版本">
                 最新版本: 讀取中...
               </span>
-              <!-- Instant Cloud Refresh Shortcut -->
-              <button onclick="pullCloudData(true)" title="立即從雲端拉取全分校最新資料" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span>立即同步</span>
-              </button>
-              <!-- Supabase Production DB Configuration -->
-              <button onclick="openDatabaseConfigModal()" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100 transition shadow-sm" title="設定全分校永久專屬資料庫">
-                <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
-                <span>正式資料庫設定</span>
-              </button>
-              <!-- Deploy Button -->
-              <button onclick="openDeployModal()" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                <span>免費架設教學</span>
+              <!-- Current User Status / Login Button -->
+              <div id="user-auth-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                <span id="user-auth-status-text">未登入編輯者</span>
+                <button id="btn-login-trigger" onclick="openLoginModal()" class="text-sky-600 hover:underline">登入</button>
+              </div>
+              <!-- Master Control Admin Button -->
+              <button onclick="openMasterAdminModal()" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                <span>主控後台</span>
               </button>
             </div>
             <p class="text-[11px] sm:text-xs text-slate-500 font-semibold">Elite International Education · Multi-Campus Distributed Cloud Engine</p>
@@ -530,7 +525,10 @@
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">(c) 所屬分校名稱 *</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-bold text-slate-700">(c) 所屬分校名稱 *</label>
+            <span id="reg-branch-lock-hint" class="text-[10px] text-sky-600 font-semibold">依登入帳號鎖定</span>
+          </div>
           <input type="text" id="reg-branch-name" required placeholder="例如：台中西屯校、新竹科園校" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
         </div>
 
@@ -790,7 +788,225 @@
       </div>
 
       <div class="mt-5 flex justify-end">
-        <button onclick="closeDeployModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition">完成</button>
+        <button onclick="closeDeleteTeacherModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: LOGIN MODAL (編輯權限登入) -->
+  <!-- ========================================== -->
+  <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 relative">
+      <button onclick="closeLoginModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3 pb-3 mb-4 border-b border-slate-100">
+        <div class="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">分校編輯者登入</h3>
+          <p class="text-xs text-slate-500">網頁各項排班與設定更動需登入帳號</p>
+        </div>
+      </div>
+
+      <form id="login-form" onsubmit="handleUserLogin(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">帳號 (Username)</label>
+          <input type="text" id="login-username" required placeholder="請輸入分校帳號" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">密碼 (Password)</label>
+          <input type="password" id="login-password" required placeholder="請輸入密碼" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+        <p id="login-error-msg" class="text-xs text-rose-600 font-semibold hidden">帳號或密碼錯誤，請洽主控後台核發！</p>
+        <div class="pt-2 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeLoginModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-md shadow-sky-600/30">確認登入</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: CONFIRM ACTION DIALOG (更改確認審核視窗) -->
+  <!-- ========================================== -->
+  <div id="action-confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 relative">
+      <div class="flex items-center gap-3 pb-3 mb-3 border-b border-slate-100">
+        <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">確認進行變更？</h3>
+          <p class="text-xs text-slate-500">此動作將寫入全分校資料庫並留下操控紀錄</p>
+        </div>
+      </div>
+
+      <div class="space-y-2 text-xs text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-4">
+        <div><span class="text-slate-500 font-semibold">操作帳號：</span><span id="confirm-actor-info" class="font-bold text-slate-900">--</span></div>
+        <div><span class="text-slate-500 font-semibold">異動類型：</span><span id="confirm-action-type" class="font-bold text-sky-700">--</span></div>
+        <div><span class="text-slate-500 font-semibold">異動內容：</span><p id="confirm-action-desc" class="text-slate-800 mt-0.5 font-medium leading-relaxed">--</p></div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2.5">
+        <button type="button" onclick="cancelPendingAction()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+        <button type="button" onclick="executeConfirmedAction()" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 shadow-md shadow-amber-600/30">確定更改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: MASTER ADMIN CONTROL (主控功能後台) -->
+  <!-- ========================================== -->
+  <div id="master-admin-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 relative max-h-[92vh] overflow-y-auto">
+      <button onclick="closeMasterAdminModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <!-- Master Login Sub-View -->
+      <div id="master-login-section" class="max-w-md mx-auto py-6">
+        <div class="flex items-center gap-3 pb-3 mb-4 border-b border-slate-100">
+          <div class="w-12 h-12 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center flex-shrink-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900">主控功能後台登入</h3>
+            <p class="text-xs text-slate-500">需輸入主控管理密碼方可核發帳號與下載稽核紀錄</p>
+          </div>
+        </div>
+
+        <form id="master-login-form" onsubmit="handleMasterAuthSubmit(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">主控後台密碼：</label>
+            <input type="password" id="master-password-input" required placeholder="請輸入主控密碼" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono tracking-wider focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <p id="master-passcode-error" class="text-xs text-rose-600 font-semibold mt-1.5 hidden">主控密碼不正確！</p>
+          </div>
+          <div class="flex justify-end gap-2.5">
+            <button type="button" onclick="closeMasterAdminModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+            <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md">解鎖主控後台</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Master Dashboard (Unlocked) -->
+      <div id="master-dashboard-section" class="hidden space-y-6">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div>
+            <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span>
+              主控管理面板 · 帳號核發與操作稽核日誌
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">可新增及核發有編輯權限的分校帳密，並即時查閱各分校帳號異動紀錄</p>
+          </div>
+          <button onclick="lockMasterAdmin()" class="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
+            登出主控
+          </button>
+        </div>
+
+        <!-- 6-Month Reminder Notification Box -->
+        <div id="master-reminder-banner" class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <strong class="font-bold">⚠️ 定期操作紀錄維護提醒（每半年一次）：</strong>
+            <p class="mt-0.5 text-amber-800">為維護平台運作流暢度，建議每半年下載操作稽核紀錄妥善存檔，並於下載後執行紀錄清除。</p>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button onclick="downloadAuditLogs(false)" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold shadow-sm">立即下載存檔</button>
+            <button onclick="downloadAuditLogs(true)" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold">下載並清除歷史紀錄</button>
+          </div>
+        </div>
+
+        <!-- Section 1: Issue New Account Form -->
+        <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+          <h4 class="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            核發新編輯帳號 (新增帳號密碼)
+          </h4>
+          <form id="issue-account-form" onsubmit="handleIssueAccountSubmit(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">分校名稱 *</label>
+              <input type="text" id="new-acc-branch" required placeholder="例如：台中西屯校" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">使用者姓名 *</label>
+              <input type="text" id="new-acc-name" required placeholder="例如：張雅婷" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">登入帳號 *</label>
+              <input type="text" id="new-acc-username" required placeholder="例如：situn_admin" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">登入密碼 *</label>
+              <input type="text" id="new-acc-password" required placeholder="請設定密碼" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-purple-500 focus:outline-none">
+            </div>
+            <div class="sm:col-span-2 lg:col-span-4 flex justify-end">
+              <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-sm transition">
+                + 確認核發並建立帳號
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Section 2: Account List Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-800">已核發編輯帳號清單</span>
+            <span id="account-count-badge" class="text-xs font-bold text-purple-700">共 0 組帳號</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-3">分校</th>
+                  <th class="py-2.5 px-3">使用者姓名</th>
+                  <th class="py-2.5 px-3">帳號</th>
+                  <th class="py-2.5 px-3">密碼</th>
+                  <th class="py-2.5 px-3">核發時間</th>
+                  <th class="py-2.5 px-3 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="master-accounts-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Section 3: Audit Log Table -->
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="p-3.5 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold text-slate-800">個別帳號操控紀錄 (Audit Log)</span>
+              <span id="audit-log-count-badge" class="text-xs text-slate-500 ml-2">共 0 筆異動</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="downloadAuditLogs(false)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                下載操作紀錄 (Excel / CSV)
+              </button>
+              <button onclick="downloadAuditLogs(true)" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition">
+                下載並清除紀錄
+              </button>
+            </div>
+          </div>
+          <div class="max-h-72 overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 sticky top-0">
+                <tr>
+                  <th class="py-2.5 px-3">操作時間</th>
+                  <th class="py-2.5 px-3">分校</th>
+                  <th class="py-2.5 px-3">使用者</th>
+                  <th class="py-2.5 px-3">帳號</th>
+                  <th class="py-2.5 px-3">動作類型</th>
+                  <th class="py-2.5 px-3">異動內容說明</th>
+                </tr>
+              </thead>
+              <tbody id="master-audit-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -1033,6 +1249,27 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     const LS_KEY_DATA = 'ELITETALK_CENTRAL_CACHE_V3';
     const LS_KEY_AUTH = 'ELITETALK_AUTH_STATE_V3';
     const LS_KEY_SUPABASE = 'ELITETALK_SUPABASE_CFG_V3';
+    const LS_KEY_LOGGED_USER = 'ELITETALK_LOGGED_USER_V3';
+    const LS_KEY_LAST_AUDIT_CLEAR = 'ELITETALK_LAST_AUDIT_CLEAR_V3';
+
+    // Master Control & Account State
+    const MASTER_ADMIN_PASSCODE = 'elite28371657';
+    let isMasterUnlocked = false;
+    let currentUser = null; // { branch, name, username }
+    let pendingAction = null; // { type, desc, callback }
+
+    let authorizedAccounts = [
+      {
+        id: 'acc_master_default',
+        branch: '總部核心',
+        name: '系統管理員',
+        username: 'admin',
+        password: '123',
+        createdAt: Date.now()
+      }
+    ];
+
+    let auditLogs = []; // Array of { timestamp, branch, userName, username, actionType, description }
 
     // Multi-Layer Cloud Sync Channels
     // Layer 1: Native Firebase Firestore (if __firebase_config is present)
@@ -1291,6 +1528,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         availability,
         bookings,
         customAvatars,
+        authorizedAccounts,
+        auditLogs,
         updatedAt: lastKnownUpdatedAt,
         sequence: currentSequence
       };
@@ -1334,6 +1573,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         teachers: compactTeachers,
         availability: compactAvailability,
         bookings: compactBookings,
+        authorizedAccounts,
+        auditLogs: auditLogs.slice(-50), // keep recent for compact
         updatedAt: lastKnownUpdatedAt,
         sequence: currentSequence
       };
@@ -1393,6 +1634,13 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         bookings = data.bookings;
       }
 
+      if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
+        authorizedAccounts = data.authorizedAccounts;
+      }
+      if (Array.isArray(data.auditLogs)) {
+        auditLogs = data.auditLogs;
+      }
+
       // 初次載入雲端資料時，若當前選中日期沒有課，自動對齊到有排課的日期 (例如 10/19)
       if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
         hasPerformedInitialDateAlign = true;
@@ -1405,6 +1653,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       if (currentView === 'mybookings') listAllUpcomingBookings();
       if (currentView === 'admin') renderAdminView();
       if (currentView === 'stats') refreshStatisticsReport();
+
+      if (isMasterUnlocked) {
+        renderMasterAccountsTable();
+        renderMasterAuditTable();
+      }
 
       if (saveToLocal) {
         try {
@@ -2081,6 +2334,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     }
 
     function openBookingModal(slotKey) {
+      if (!checkUserLogin()) {
+        showToast('學生選課需先登入分校編輯帳號！', 'warning');
+        return;
+      }
+
       const { teacherId, dateStr, timeSlot } = parseSlotKey(slotKey);
 
       const teacher = teachers.find(t => t.id === teacherId);
@@ -2103,6 +2361,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       document.getElementById('modal-time-slot').textContent = `${dateStr}  ${timeSlot} (30 分鐘)`;
       document.getElementById('modal-quota-text').textContent = `名額：尚餘 ${remaining} 位空位`;
 
+      // Auto-fill branch name from currently logged-in account
+      const branchInput = document.getElementById('reg-branch-name');
+      if (branchInput && currentUser && currentUser.branch) {
+        branchInput.value = currentUser.branch;
+      }
+
       document.getElementById('booking-modal').classList.remove('hidden');
     }
 
@@ -2115,6 +2379,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
 
     function handleBookingSubmit(e) {
       e.preventDefault();
+      if (!checkUserLogin()) {
+        showToast('學生選課需先登入分校帳號！', 'warning');
+        return;
+      }
+
       const slotKey = document.getElementById('book-slot-key').value;
       const zhName = document.getElementById('reg-zh-name').value.trim();
       const enName = document.getElementById('reg-en-name').value.trim();
@@ -2144,27 +2413,48 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       const { teacherId, dateStr, timeSlot } = parseSlotKey(slotKey);
-      const newBooking = {
-        id: 'b' + Date.now() + Math.random().toString(36).substr(2, 4),
-        zhName,
-        enName,
-        branchName,
-        contactTeacher,
-        teacherId,
-        dateStr,
-        timeSlot,
-        timestamp: Date.now()
+      const targetTeacher = teachers.find(t => t.id === teacherId);
+      const teacherName = targetTeacher ? targetTeacher.name : '外籍師資';
+
+      const action = () => {
+        const newBooking = {
+          id: 'b' + Date.now() + Math.random().toString(36).substr(2, 4),
+          zhName,
+          enName,
+          branchName,
+          contactTeacher,
+          teacherId,
+          dateStr,
+          timeSlot,
+          bookedByAccount: currentUser ? currentUser.username : 'system',
+          timestamp: Date.now()
+        };
+
+        bookings[slotKey].push(newBooking);
+
+        // Record detailed audit log with logged-in user credentials
+        recordAuditLog(
+          '學生預約選課',
+          `帳號【${currentUser ? currentUser.username : '未具名'}】為學生【${zhName} (${enName})】報名 ${dateStr} ${timeSlot} 外師【${teacherName}】口說課 (所屬分校: ${branchName} / 聯絡中師: ${contactTeacher})`
+        );
+
+        closeBookingModal();
+        renderStudentSchedule();
+        if (currentView === 'mybookings') listAllUpcomingBookings();
+        if (currentView === 'admin') renderAdminView();
+
+        showToast(`預約成功！已登記學生：${zhName} (${enName})`, 'success');
+        pushCloudData();
       };
 
-      bookings[slotKey].push(newBooking);
-
+      // Close input form and trigger confirmation dialog (requiring staff login)
       closeBookingModal();
-      renderStudentSchedule();
-      if (currentView === 'mybookings') listAllUpcomingBookings();
-      if (currentView === 'admin') renderAdminView();
-
-      showToast(`預約成功！已登記學生：${zhName} (${enName})`, 'success');
-      pushCloudData();
+      requestConfirmedAction(
+        '學生選課報名',
+        `帳號【${currentUser ? currentUser.username : '未具名'}】申請為學生【${zhName} (${enName})】預約 ${dateStr} ${timeSlot} 外師【${teacherName}】口說課 (分校: ${branchName} / 聯絡中師: ${contactTeacher})`,
+        action,
+        true // Enforce login verification
+      );
     }
 
     /* ==========================================================
@@ -2244,12 +2534,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       if (!bookings[slotKey]) return;
 
       const idx = bookings[slotKey].findIndex(b => b.id === bookingId);
-      if (idx !== -1) {
+      if (idx === -1) return;
+
+      const action = () => {
         bookings[slotKey].splice(idx, 1);
         if (bookings[slotKey].length === 0) {
           delete bookings[slotKey];
         }
 
+        recordAuditLog('退選學生', `時段 ${slotKey} 辦理退選學生【${studentName}】`);
         showToast(`已成功為學生【${studentName}】辦理退選，時段名額已即時釋出！`, 'success');
         
         renderBookingsTable(document.getElementById('mybooking-search-input')?.value.trim().toLowerCase());
@@ -2257,7 +2550,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         if (currentView === 'admin') renderAdminView();
 
         pushCloudData(true);
-      }
+      };
+
+      requestConfirmedAction('學生退選', `為學生【${studentName}】於時段 ${slotKey} 辦理退選並釋出名額`, action);
     }
 
     /* ==========================================================
@@ -2369,41 +2664,55 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       const booked = bookings[slotKey] || [];
       const isOpen = availability[slotKey] === true;
 
-      if (isOpen) {
-        if (booked.length > 0) {
-          showToast(`此時段已有 ${booked.length} 位學生報名，若要取消開課請先於下方名冊辦理退選！`, 'warning');
-          return;
-        }
-        delete availability[slotKey];
-        showToast('時段已關閉！', 'info');
-      } else {
-        availability[slotKey] = true;
-        showToast('時段已開放報名！', 'success');
+      if (isOpen && booked.length > 0) {
+        showToast(`此時段已有 ${booked.length} 位學生報名，若要取消開課請先於下方名冊辦理退選！`, 'warning');
+        return;
       }
 
-      renderAdminView();
-      renderStudentSchedule();
-      pushCloudData(true);
+      const action = () => {
+        if (isOpen) {
+          delete availability[slotKey];
+          recordAuditLog('排班調整', `關閉開課時段：${slotKey}`);
+          showToast('時段已關閉！', 'info');
+        } else {
+          availability[slotKey] = true;
+          recordAuditLog('排班調整', `開放開課時段：${slotKey}`);
+          showToast('時段已開放報名！', 'success');
+        }
+
+        renderAdminView();
+        renderStudentSchedule();
+        pushCloudData(true);
+      };
+
+      const actionDesc = isOpen ? `關閉該外師時段：${slotKey}` : `開放該外師時段：${slotKey}`;
+      requestConfirmedAction('單一時段排班切換', actionDesc, action);
     }
 
     function bulkToggleAdminDay(openAll) {
-      TIME_SLOTS.forEach(slot => {
-        const slotKey = `${activeAdminTeacherId}_${selectedDateStr}_${slot.id}`;
-        const booked = bookings[slotKey] || [];
+      const action = () => {
+        TIME_SLOTS.forEach(slot => {
+          const slotKey = `${activeAdminTeacherId}_${selectedDateStr}_${slot.id}`;
+          const booked = bookings[slotKey] || [];
 
-        if (openAll) {
-          availability[slotKey] = true;
-        } else {
-          if (booked.length === 0) {
-            delete availability[slotKey];
+          if (openAll) {
+            availability[slotKey] = true;
+          } else {
+            if (booked.length === 0) {
+              delete availability[slotKey];
+            }
           }
-        }
-      });
+        });
 
-      renderAdminView();
-      renderStudentSchedule();
-      showToast(openAll ? '已開放今日所有時段！' : '已關閉今日無人報名之時段！', 'info');
-      pushCloudData(true);
+        recordAuditLog('批次排班', `${openAll ? '全開' : '批次關閉無人'} 日期 ${selectedDateStr} 之所有時段 (外師: ${activeAdminTeacherId})`);
+        renderAdminView();
+        renderStudentSchedule();
+        showToast(openAll ? '已開放今日所有時段！' : '已關閉今日無人報名之時段！', 'info');
+        pushCloudData(true);
+      };
+
+      const desc = openAll ? `將 ${selectedDateStr} 當天所有時段一次全開` : `將 ${selectedDateStr} 當天無人報名之時段批次關閉`;
+      requestConfirmedAction('批次排班調整', desc, action);
     }
 
     /* ==========================================================
@@ -2823,33 +3132,38 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         photo = `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2))}`;
       }
 
-      const idx = teachers.findIndex(t => t.id === activeAdminTeacherId);
-      if (idx !== -1) {
-        const tid = teachers[idx].id;
-        if (photo.startsWith('data:image')) {
-          customAvatars[tid] = photo;
-          pushAvatarForTeacher(tid, photo);
-        } else {
-          delete customAvatars[tid];
+      const action = async () => {
+        const idx = teachers.findIndex(t => t.id === activeAdminTeacherId);
+        if (idx !== -1) {
+          const tid = teachers[idx].id;
+          if (photo.startsWith('data:image')) {
+            customAvatars[tid] = photo;
+            pushAvatarForTeacher(tid, photo);
+          } else {
+            delete customAvatars[tid];
+          }
+          teachers[idx] = {
+            ...teachers[idx],
+            name,
+            tag,
+            avatar: photo,
+            bio,
+            hasCustomAvatar: photo.startsWith('data:image')
+          };
         }
-        teachers[idx] = {
-          ...teachers[idx],
-          name,
-          tag,
-          avatar: photo,
-          bio,
-          hasCustomAvatar: photo.startsWith('data:image')
-        };
-      }
 
-      closeTeacherModal();
-      populateAdminTeacherSelector();
-      populateTeacherFilterOptions();
-      renderAdminView();
-      renderStudentSchedule();
+        recordAuditLog('外師資料異動', `修改外師【${name}】之基本資料、標籤或相片`);
+        closeTeacherModal();
+        populateAdminTeacherSelector();
+        populateTeacherFilterOptions();
+        renderAdminView();
+        renderStudentSchedule();
 
-      showToast(`外師 ${name} 資料與相片已更新並同步至雲端！`, 'success');
-      await pushCloudData(true);
+        showToast(`外師 ${name} 資料與相片已更新並同步至雲端！`, 'success');
+        await pushCloudData(true);
+      };
+
+      requestConfirmedAction('編輯外師資料', `更新外師【${name}】的相片、教學標籤與個人簡介`, action);
     }
 
     /* ==========================================================
@@ -2916,36 +3230,41 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         return;
       }
 
-      if (!photo) {
-        photo = `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2).toUpperCase())}`;
-      }
+      const action = async () => {
+        if (!photo) {
+          photo = `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2).toUpperCase())}`;
+        }
 
-      const newTeacherId = 't' + Date.now();
-      if (photo.startsWith('data:image')) {
-        customAvatars[newTeacherId] = photo;
-        pushAvatarForTeacher(newTeacherId, photo);
-      }
+        const newTeacherId = 't' + Date.now();
+        if (photo.startsWith('data:image')) {
+          customAvatars[newTeacherId] = photo;
+          pushAvatarForTeacher(newTeacherId, photo);
+        }
 
-      const newTeacher = {
-        id: newTeacherId,
-        name,
-        tag: tag || '專任英語口說師資',
-        avatar: photo,
-        bio: bio || '熱愛英語教學，引導學生自然開口。',
-        hasCustomAvatar: photo.startsWith('data:image')
+        const newTeacher = {
+          id: newTeacherId,
+          name,
+          tag: tag || '專任英語口說師資',
+          avatar: photo,
+          bio: bio || '熱愛英語教學，引導學生自然開口。',
+          hasCustomAvatar: photo.startsWith('data:image')
+        };
+
+        teachers.push(newTeacher);
+        activeAdminTeacherId = newTeacherId;
+
+        recordAuditLog('新增外師', `建立新外師：${name} (${tag})`);
+        closeAddTeacherModal();
+        populateAdminTeacherSelector();
+        populateTeacherFilterOptions();
+        renderAdminView();
+        renderStudentSchedule();
+
+        showToast(`成功新增外師：${name}！已同步至雲端。`, 'success');
+        await pushCloudData(true);
       };
 
-      teachers.push(newTeacher);
-      activeAdminTeacherId = newTeacherId;
-
-      closeAddTeacherModal();
-      populateAdminTeacherSelector();
-      populateTeacherFilterOptions();
-      renderAdminView();
-      renderStudentSchedule();
-
-      showToast(`成功新增外師：${name}！已同步至雲端。`, 'success');
-      await pushCloudData(true);
+      requestConfirmedAction('新增外師師資', `建立新外師【${name}】並開放全分校排班`, action);
     }
 
     let teacherIdPendingDelete = null;
@@ -3002,36 +3321,403 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         return;
       }
 
-      Object.keys(availability).forEach(key => {
-        const { teacherId } = parseSlotKey(key);
-        if (teacherId === targetId) {
-          delete availability[key];
-        }
-      });
+      const action = () => {
+        Object.keys(availability).forEach(key => {
+          const { teacherId } = parseSlotKey(key);
+          if (teacherId === targetId) {
+            delete availability[key];
+          }
+        });
 
-      Object.keys(bookings).forEach(key => {
-        const { teacherId } = parseSlotKey(key);
-        if (teacherId === targetId) {
-          delete bookings[key];
-        }
-      });
+        Object.keys(bookings).forEach(key => {
+          const { teacherId } = parseSlotKey(key);
+          if (teacherId === targetId) {
+            delete bookings[key];
+          }
+        });
 
-      delete customAvatars[targetId];
-      teachers = teachers.filter(t => t.id !== targetId);
-      activeAdminTeacherId = teachers[0].id;
+        delete customAvatars[targetId];
+        teachers = teachers.filter(t => t.id !== targetId);
+        activeAdminTeacherId = teachers[0].id;
+
+        recordAuditLog('刪除外師', `刪除外師【${teacher.name}】及其所有排課時段`);
+        closeDeleteTeacherModal();
+        populateAdminTeacherSelector();
+        populateTeacherFilterOptions();
+        renderAdminView();
+        renderStudentSchedule();
+
+        showToast(`已成功移除外師【${teacher.name}】！`, 'info');
+        pushCloudData(true);
+      };
 
       closeDeleteTeacherModal();
-      populateAdminTeacherSelector();
-      populateTeacherFilterOptions();
-      renderAdminView();
-      renderStudentSchedule();
-
-      showToast(`已成功移除外師【${teacher.name}】！`, 'info');
-      pushCloudData(true);
+      requestConfirmedAction('刪除外師', `確認自系統完全移除外師【${teacher.name}】及其所有時段`, action);
     }
 
     function deleteCurrentTeacher() {
       promptDeleteCurrentTeacher();
+    }
+
+    /* ==========================================================
+       11.2 USER AUTHENTICATION & CHANGE CONFIRMATION GUARD
+       ========================================================== */
+    function checkUserLogin() {
+      if (!currentUser) {
+        openLoginModal();
+        return false;
+      }
+      return true;
+    }
+
+    function openLoginModal() {
+      document.getElementById('login-modal')?.classList.remove('hidden');
+      document.getElementById('login-error-msg')?.classList.add('hidden');
+      document.getElementById('login-username')?.focus();
+    }
+
+    function closeLoginModal() {
+      document.getElementById('login-modal')?.classList.add('hidden');
+      const form = document.getElementById('login-form');
+      if (form) form.reset();
+    }
+
+    function handleUserLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value.trim();
+      const err = document.getElementById('login-error-msg');
+
+      const found = authorizedAccounts.find(a => a.username === u && a.password === p);
+      if (found) {
+        currentUser = {
+          branch: found.branch,
+          name: found.name,
+          username: found.username
+        };
+        try {
+          localStorage.setItem(LS_KEY_LOGGED_USER, JSON.stringify(currentUser));
+        } catch (err) {}
+        updateUserAuthUI();
+        closeLoginModal();
+        showToast(`登入成功！歡迎【${found.branch} - ${found.name}】`, 'success');
+        recordAuditLog('登入系統', `使用者登入分校編輯權限`);
+      } else {
+        if (err) err.classList.remove('hidden');
+      }
+    }
+
+    function handleUserLogout() {
+      if (currentUser) {
+        recordAuditLog('登出系統', `使用者登出分校編輯權限`);
+      }
+      currentUser = null;
+      localStorage.removeItem(LS_KEY_LOGGED_USER);
+      updateUserAuthUI();
+      showToast('已登出編輯權限', 'info');
+    }
+
+    function updateUserAuthUI() {
+      const statusText = document.getElementById('user-auth-status-text');
+      const triggerBtn = document.getElementById('btn-login-trigger');
+      if (!statusText || !triggerBtn) return;
+
+      if (currentUser) {
+        statusText.innerHTML = `<span class="text-sky-700 font-bold">${currentUser.branch}</span> · ${currentUser.name} (${currentUser.username})`;
+        triggerBtn.textContent = '登出';
+        triggerBtn.onclick = handleUserLogout;
+        triggerBtn.className = 'text-rose-600 hover:underline ml-1';
+      } else {
+        statusText.textContent = '未登入編輯者';
+        triggerBtn.textContent = '登入';
+        triggerBtn.onclick = openLoginModal;
+        triggerBtn.className = 'text-sky-600 hover:underline ml-1';
+      }
+    }
+
+    function requestConfirmedAction(actionType, description, callback, requireStaffLogin = true) {
+      if (requireStaffLogin && !checkUserLogin()) {
+        showToast('此項操作需先登入具備編輯權限之分校帳號！', 'warning');
+        return;
+      }
+
+      pendingAction = {
+        type: actionType,
+        desc: description,
+        callback
+      };
+
+      const actorInfo = currentUser
+        ? `${currentUser.branch} · ${currentUser.name} (${currentUser.username})`
+        : '前台學生 / 家長選課登記';
+
+      document.getElementById('confirm-actor-info').textContent = actorInfo;
+      document.getElementById('confirm-action-type').textContent = actionType;
+      document.getElementById('confirm-action-desc').textContent = description;
+
+      document.getElementById('action-confirm-modal')?.classList.remove('hidden');
+    }
+
+    function cancelPendingAction() {
+      pendingAction = null;
+      document.getElementById('action-confirm-modal')?.classList.add('hidden');
+      showToast('已取消變更', 'info');
+    }
+
+    async function executeConfirmedAction() {
+      if (!pendingAction || !pendingAction.callback) {
+        document.getElementById('action-confirm-modal')?.classList.add('hidden');
+        return;
+      }
+
+      const cb = pendingAction.callback;
+      document.getElementById('action-confirm-modal')?.classList.add('hidden');
+      pendingAction = null;
+
+      try {
+        await cb();
+      } catch (err) {
+        console.error("Action execution error:", err);
+      }
+    }
+
+    function recordAuditLog(actionType, description, customActor = null) {
+      const user = customActor || currentUser || { branch: '系統外部', name: '訪客/前台', username: 'guest' };
+      const logEntry = {
+        id: 'log_' + Date.now() + Math.random().toString(36).substr(2, 4),
+        timestamp: Date.now(),
+        branch: user.branch,
+        userName: user.name,
+        username: user.username,
+        actionType,
+        description
+      };
+      auditLogs.unshift(logEntry);
+      if (auditLogs.length > 500) {
+        auditLogs.pop();
+      }
+
+      if (isMasterUnlocked) {
+        renderMasterAuditTable();
+      }
+    }
+
+    /* ==========================================================
+       11.3 MASTER CONTROL ADMIN (主控後台核發帳號與稽核)
+       ========================================================== */
+    function openMasterAdminModal() {
+      const modal = document.getElementById('master-admin-modal');
+      const loginSec = document.getElementById('master-login-section');
+      const dashSec = document.getElementById('master-dashboard-section');
+      const err = document.getElementById('master-passcode-error');
+      if (err) err.classList.add('hidden');
+
+      if (isMasterUnlocked) {
+        loginSec.classList.add('hidden');
+        dashSec.classList.remove('hidden');
+        renderMasterAccountsTable();
+        renderMasterAuditTable();
+        checkSixMonthReminder();
+      } else {
+        loginSec.classList.remove('hidden');
+        dashSec.classList.add('hidden');
+        setTimeout(() => document.getElementById('master-password-input')?.focus(), 150);
+      }
+
+      modal?.classList.remove('hidden');
+    }
+
+    function closeMasterAdminModal() {
+      document.getElementById('master-admin-modal')?.classList.add('hidden');
+    }
+
+    function handleMasterAuthSubmit(e) {
+      e.preventDefault();
+      const pw = document.getElementById('master-password-input').value.trim();
+      const err = document.getElementById('master-passcode-error');
+
+      if (pw === MASTER_ADMIN_PASSCODE) {
+        isMasterUnlocked = true;
+        if (err) err.classList.add('hidden');
+        document.getElementById('master-login-section').classList.add('hidden');
+        document.getElementById('master-dashboard-section').classList.remove('hidden');
+        renderMasterAccountsTable();
+        renderMasterAuditTable();
+        checkSixMonthReminder();
+        showToast('已進入主控功能後台！', 'success');
+      } else {
+        if (err) err.classList.remove('hidden');
+        showToast('主控密碼錯誤！', 'error');
+      }
+    }
+
+    function lockMasterAdmin() {
+      isMasterUnlocked = false;
+      document.getElementById('master-password-input').value = '';
+      document.getElementById('master-login-section').classList.remove('hidden');
+      document.getElementById('master-dashboard-section').classList.add('hidden');
+      showToast('已鎖定退出主控後台', 'info');
+    }
+
+    function handleIssueAccountSubmit(e) {
+      e.preventDefault();
+      const branch = document.getElementById('new-acc-branch').value.trim();
+      const name = document.getElementById('new-acc-name').value.trim();
+      const username = document.getElementById('new-acc-username').value.trim();
+      const password = document.getElementById('new-acc-password').value.trim();
+
+      if (!branch || !name || !username || !password) {
+        showToast('請務必填寫完整四項資料欄位！', 'warning');
+        return;
+      }
+
+      if (authorizedAccounts.some(a => a.username.toLowerCase() === username.toLowerCase())) {
+        showToast('該帳號已存在，請使用其他登入帳號！', 'warning');
+        return;
+      }
+
+      const newAccount = {
+        id: 'acc_' + Date.now(),
+        branch,
+        name,
+        username,
+        password,
+        createdAt: Date.now()
+      };
+
+      authorizedAccounts.push(newAccount);
+      document.getElementById('issue-account-form')?.reset();
+      renderMasterAccountsTable();
+      recordAuditLog('核發帳號', `主控端核發新帳號：${username} (${branch} - ${name})`);
+      showToast(`已成功核發【${branch} - ${name}】之編輯帳號！`, 'success');
+      pushCloudData(true);
+    }
+
+    function renderMasterAccountsTable() {
+      const tbody = document.getElementById('master-accounts-tbody');
+      const countBadge = document.getElementById('account-count-badge');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      if (countBadge) {
+        countBadge.textContent = `共 ${authorizedAccounts.length} 組帳號`;
+      }
+
+      if (authorizedAccounts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400">目前尚無核發之分校帳號。</td></tr>`;
+        return;
+      }
+
+      authorizedAccounts.forEach(acc => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-bold text-slate-800">${acc.branch}</td>
+          <td class="py-2.5 px-3 text-slate-700 font-semibold">${acc.name}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-sky-700">${acc.username}</td>
+          <td class="py-2.5 px-3 font-mono text-slate-600">${acc.password}</td>
+          <td class="py-2.5 px-3 text-slate-400 text-[11px]">${new Date(acc.createdAt).toLocaleDateString('zh-TW')}</td>
+          <td class="py-2.5 px-3 text-center">
+            ${
+              acc.username === 'admin'
+                ? `<span class="text-[10px] text-slate-400">系統保留</span>`
+                : `<button onclick="deleteAuthorizedAccount('${acc.id}', '${acc.username}')" class="px-2.5 py-1 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded border border-rose-200">撤銷帳號</button>`
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function deleteAuthorizedAccount(accId, username) {
+      if (username === 'admin') {
+        showToast('預設管理員帳號不可刪除！', 'warning');
+        return;
+      }
+
+      authorizedAccounts = authorizedAccounts.filter(a => a.id !== accId);
+      recordAuditLog('撤銷帳號', `主控端撤銷帳號：${username}`);
+      renderMasterAccountsTable();
+      showToast(`已成功撤銷帳號【${username}】！`, 'info');
+      pushCloudData(true);
+    }
+
+    function renderMasterAuditTable() {
+      const tbody = document.getElementById('master-audit-tbody');
+      const badge = document.getElementById('audit-log-count-badge');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      if (badge) {
+        badge.textContent = `共 ${auditLogs.length} 筆異動紀錄`;
+      }
+
+      if (auditLogs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400">目前尚無操作稽核紀錄。</td></tr>`;
+        return;
+      }
+
+      auditLogs.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50 transition border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="py-2 px-3 font-mono text-[11px] text-slate-500">${new Date(log.timestamp).toLocaleString('zh-TW')}</td>
+          <td class="py-2 px-3 font-semibold text-slate-800">${log.branch || '--'}</td>
+          <td class="py-2 px-3 font-bold text-slate-900">${log.userName || '--'}</td>
+          <td class="py-2 px-3 font-mono text-purple-700">${log.username || '--'}</td>
+          <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">${log.actionType}</span></td>
+          <td class="py-2 px-3 text-slate-700 max-w-xs truncate" title="${log.description}">${log.description}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function checkSixMonthReminder() {
+      const lastClear = Number(localStorage.getItem(LS_KEY_LAST_AUDIT_CLEAR)) || 0;
+      const now = Date.now();
+      const sixMonthsMs = 180 * 24 * 60 * 60 * 1000;
+      const banner = document.getElementById('master-reminder-banner');
+
+      if (lastClear > 0 && now - lastClear > sixMonthsMs) {
+        if (banner) banner.classList.remove('hidden');
+      }
+    }
+
+    function downloadAuditLogs(clearAfterDownload = false) {
+      if (auditLogs.length === 0) {
+        showToast('目前沒有可下載的操作紀錄！', 'warning');
+        return;
+      }
+
+      let csv = '\uFEFF'; // UTF-8 BOM
+      csv += `精英國際教育 EliteTalk 平台個別帳號操作稽核日誌\n`;
+      csv += `匯出時間：${new Date().toLocaleString('zh-TW')}\n\n`;
+      csv += `操作時間,分校名稱,使用者姓名,登入帳號,動作類型,異動內容說明\n`;
+
+      auditLogs.forEach(l => {
+        const timeStr = new Date(l.timestamp).toLocaleString('zh-TW');
+        csv += `"${timeStr}","${l.branch || ''}","${l.userName || ''}","${l.username || ''}","${l.actionType || ''}","${(l.description || '').replace(/"/g, '""')}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EliteTalk_帳號操作紀錄_${formatDateIso(new Date())}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (clearAfterDownload) {
+        auditLogs = [];
+        localStorage.setItem(LS_KEY_LAST_AUDIT_CLEAR, String(Date.now()));
+        renderMasterAuditTable();
+        showToast('已完成操作紀錄下載，並成功清除歷史紀錄！', 'success');
+        pushCloudData(true);
+      } else {
+        showToast('操作紀錄 Excel/CSV 下載完成！', 'success');
+      }
     }
 
     /* ==========================================================
@@ -3124,6 +3810,21 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     window.testDbConnection = testDbConnection;
     window.handleSaveDbConfig = handleSaveDbConfig;
 
+    // Master & Auth Exports
+    window.openLoginModal = openLoginModal;
+    window.closeLoginModal = closeLoginModal;
+    window.handleUserLogin = handleUserLogin;
+    window.handleUserLogout = handleUserLogout;
+    window.openMasterAdminModal = openMasterAdminModal;
+    window.closeMasterAdminModal = closeMasterAdminModal;
+    window.handleMasterAuthSubmit = handleMasterAuthSubmit;
+    window.lockMasterAdmin = lockMasterAdmin;
+    window.handleIssueAccountSubmit = handleIssueAccountSubmit;
+    window.deleteAuthorizedAccount = deleteAuthorizedAccount;
+    window.cancelPendingAction = cancelPendingAction;
+    window.executeConfirmedAction = executeConfirmedAction;
+    window.downloadAuditLogs = downloadAuditLogs;
+
     function dismissLoaderForcefully() {
       const loader = document.getElementById('mandatory-cloud-loader');
       if (loader) {
@@ -3144,6 +3845,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       setTimeout(() => {
         if (forceBtn) forceBtn.classList.remove('hidden');
       }, 3500);
+
+      // Restore logged-in user if exists in localStorage
+      try {
+        const savedUser = localStorage.getItem(LS_KEY_LOGGED_USER);
+        if (savedUser) {
+          currentUser = JSON.parse(savedUser);
+        }
+      } catch (e) {}
+      updateUserAuthUI();
 
       // Step 0: Load local cache first as baseline so we never lose existing local work
       let hadLocalData = false;
