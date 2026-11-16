@@ -822,9 +822,15 @@
           <input type="password" id="login-password" required placeholder="請輸入密碼" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
         </div>
         <p id="login-error-msg" class="text-xs text-rose-600 font-semibold hidden">帳號或密碼錯誤，請洽主控後台核發！</p>
-        <div class="pt-2 flex items-center justify-end gap-2.5">
-          <button type="button" onclick="closeLoginModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
-          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-md shadow-sky-600/30">確認登入</button>
+        <div class="pt-2 flex items-center justify-between gap-2">
+          <button type="button" onclick="pullCloudData(true)" class="text-[11px] font-bold text-sky-600 hover:text-sky-700 hover:underline flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            同步最新核發帳號
+          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeLoginModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+            <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-md shadow-sky-600/30">確認登入</button>
+          </div>
         </div>
       </form>
     </div>
@@ -1281,13 +1287,13 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     // Layer 2: User-configured Supabase PostgreSQL (if configured)
     let supabaseClient = null;
     let customSupabaseUrl = '';
-    let customSupabaseKey = '';
-
-    // Layer 3: Chunked Ntfy Pub/Sub Event Stream (Works globally on Netlify/GitHub Pages without CORS or Auth)
-    // We split state & avatars into lightweight chunks (< 3000 bytes) so Ntfy never converts to attachments!
+    // Layer 3: Multi-Node Persistent Cloud Engine (Works globally on Netlify/GitHub Pages without expiry)
     const NTFY_CORE_TOPIC = 'elitetalk_v3_core_state_28371657';
     const NTFY_AVATAR_PREFIX = 'elitetalk_v3_avatar_28371657_';
     const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
+    // Permanent Key-Value Store (Bucket key derived from EliteTalk Master ID so it never expires)
+    const KV_PERSISTENT_URL = 'https://kvdb.io/A9xK7pL2mQ8wR4vN6yT1zB/elitetalk_master_state_v4';
+    const JSONSTORAGE_BACKUP_URL = 'https://api.jsonstorage.net/v1/json/elitetalk-hub-28371657/central-state-v4';
 
     // Cross-tab instant broadcast
     const broadcastChannel = window.BroadcastChannel ? new BroadcastChannel('elitetalk_sync_v3') : null;
@@ -1635,7 +1641,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
-        authorizedAccounts = data.authorizedAccounts;
+        // Union merge authorized accounts by username so newly issued accounts on any device are never lost
+        const accMap = new Map();
+        authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
+        data.authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
+        authorizedAccounts = Array.from(accMap.values());
       }
       if (Array.isArray(data.auditLogs)) {
         auditLogs = data.auditLogs;
@@ -1735,19 +1745,31 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
           const snap = await getDoc(stateDocRef);
           if (snap.exists()) {
-            const d = snap.data();
-            if (d && d.payloadJson) {
-              const payload = JSON.parse(d.payloadJson);
+            const data = snap.data();
+            if (data && data.payloadJson) {
+              const payload = JSON.parse(data.payloadJson);
               if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                 newestPayload = payload;
-                winningSource = 'Firestore 雲端';
+                winningSource = 'Firebase 雲端';
               }
             }
           }
         } catch (err) {}
       }
 
-      // 3. Check Global Ntfy Event Stream (Works across all Netlify / Mobile / Desktop browsers)
+      // 3. Check Permanent KVDB & JSONStorage Hub (Never expires after 12 hours!)
+      try {
+        const resKv = await fetch(KV_PERSISTENT_URL, { method: 'GET', cache: 'no-store' });
+        if (resKv.ok) {
+          const kvData = await resKv.json();
+          if (kvData && kvData.teachers && (!newestPayload || (kvData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+            newestPayload = kvData;
+            winningSource = '跨分校永久資料庫';
+          }
+        }
+      } catch (e) {}
+
+      // 4. Check Global Ntfy Event Stream (Real-time pub/sub layer)
       try {
         const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
           method: 'GET',
@@ -1858,21 +1880,26 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         } catch (e) {}
       }
 
-      // 5. Push compact core dataset (< 3KB) to Global Ntfy Stream
+      // 5. Push compact core dataset (< 3KB) to Permanent KVDB + Global Ntfy Stream
       try {
         const compactPayload = getCompactCoreDataset();
         if (forceClear) compactPayload.forceClear = true;
         const compactStr = JSON.stringify(compactPayload);
 
-        const resNtfy = await fetch(NTFY_CORE_URL, {
-          method: 'POST',
-          body: compactStr
-        });
-        if (resNtfy.ok) {
+        const [resNtfy, resKv] = await Promise.allSettled([
+          fetch(NTFY_CORE_URL, { method: 'POST', body: compactStr }),
+          fetch(KV_PERSISTENT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: compactStr
+          })
+        ]);
+
+        if ((resNtfy.status === 'fulfilled' && resNtfy.value.ok) || (resKv.status === 'fulfilled' && resKv.value.ok)) {
           verifiedWriteCount++;
         }
       } catch (err) {
-        console.warn("Ntfy push error:", err);
+        console.warn("Cloud push error:", err);
       }
 
       if (verifiedWriteCount > 0) {
@@ -3883,23 +3910,31 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       updateCalendarBanner();
 
       // Step 3: Pull authoritative data from Global Cloud Stream
-      if (statusText) statusText.textContent = '正在從跨分校雲端同步最新課表、相片與報名名單...';
+      if (statusText) statusText.textContent = '正在從跨分校雲端同步最新帳號、課表與報名名單...';
       let cloudPulled = false;
+      const localAccountsCountBeforePull = authorizedAccounts.length;
+      const localSlotsCountBeforePull = countActiveSlots(availability);
+
       try {
         cloudPulled = await pullCloudData(false);
       } catch (err) {
         console.warn("Initial cloud pull error:", err);
       }
 
-      // Step 4: If this device has existing schedule data in LocalStorage that isn't in the new v3 cloud stream yet,
-      // automatically seed the cloud stream so other devices immediately see it!
-      if (!cloudPulled && hadLocalData) {
+      // Step 4: Auto-Heal Sync! If local browser has more issued accounts (e.g. elite013, elite005) or schedules
+      // that expired from temporary cache, immediately push local state back up to permanent cloud!
+      const shouldAutoHealCloud =
+        (!cloudPulled && (hadLocalData || localAccountsCountBeforePull > 1)) ||
+        (authorizedAccounts.length > 1 && localAccountsCountBeforePull >= authorizedAccounts.length) ||
+        (countActiveSlots(availability) > 0 && localSlotsCountBeforePull >= countActiveSlots(availability));
+
+      if (shouldAutoHealCloud) {
         for (const t of teachers) {
           if (t.avatar && t.avatar.startsWith('data:image')) {
             await pushAvatarForTeacher(t.id, t.avatar);
           }
         }
-        await pushCloudData(true);
+        await pushCloudData(false);
       }
 
       // Step 5: Smart Date Alignment (If current date has 0 slots, auto-jump to active week like 10/19)
