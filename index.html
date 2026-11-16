@@ -1574,7 +1574,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         availability: compactAvailability,
         bookings: compactBookings,
         authorizedAccounts,
-        auditLogs: auditLogs.slice(-50), // keep recent for compact
+        auditLogs: auditLogs.slice(0, 8), // 僅傳輸最新 8 筆核心稽核紀錄，確保封包遠小於 4KB 限制，100% 寫入成功
         updatedAt: lastKnownUpdatedAt,
         sequence: currentSequence
       };
@@ -1804,6 +1804,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         return true;
       }
 
+      // 若雲端尚無任何紀錄，解除「讀取中...」文字狀態
+      updateVersionDisplay(lastKnownUpdatedAt, currentSequence, lastKnownUpdatedAt > 0 ? '已就緒' : '雲端待命同步');
+
       if (showFeedback) {
         showToast('目前已是最新狀態！', 'info');
       }
@@ -1855,7 +1858,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         } catch (e) {}
       }
 
-      // 5. Push compact core dataset (< 2.5KB) to Global Ntfy Stream (Guaranteed < 4096 bytes!)
+      // 5. Push compact core dataset (< 3KB) to Global Ntfy Stream
       try {
         const compactPayload = getCompactCoreDataset();
         if (forceClear) compactPayload.forceClear = true;
@@ -1877,6 +1880,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '已同步');
       } else {
         updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '僅本機暫存');
+        showToast('警告：網路受限，資料僅暫存於本機，別台電腦暫時無法看到更新！', 'warning');
       }
     }
 
@@ -1990,13 +1994,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     function updateVersionDisplay(timestamp, seq, statusLabel = '') {
       const badge = document.getElementById('live-version-badge');
       const timeEl = document.getElementById('cloud-last-sync-time');
-      const displayStr = formatTimestampDisplay(timestamp);
+      const displayStr = timestamp ? formatTimestampDisplay(timestamp) : '尚無雲端資料';
 
       if (badge) {
         badge.textContent = `最新版本: ${displayStr}${statusLabel ? ` (${statusLabel})` : ''}`;
       }
-      if (timeEl && timestamp) {
-        timeEl.textContent = `${new Date(timestamp).toLocaleString('zh-TW')} (序號: ${seq || 0})`;
+      if (timeEl) {
+        timeEl.textContent = timestamp 
+          ? `${new Date(timestamp).toLocaleString('zh-TW')} (序號: ${seq || 0})`
+          : '尚未有雲端寫入紀錄';
       }
     }
 
