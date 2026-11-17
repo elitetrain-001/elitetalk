@@ -1,30 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>外師口說課媒合平台 | EliteTalk</title>
-  <!-- Tailwind CSS -->
+  <title>外師口說課媒合平台 | TalkMaster Lesson Platform</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts: Inter & Noto Sans TC -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-  <!-- Chart.js for Visual Statistics -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- Supabase JS Client library -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['"Inter"', '"Noto Sans TC"', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
   <style>
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #f1f5f9; }
@@ -804,12 +785,92 @@
     let auditLogs = [];
     let dbUpdatedAt = 0;
 
-    // Primary Cloud Endpoint (Ntfy Single Authoritative Topic + Optional Firestore/Supabase)
-    const DB_TOPIC_URL = 'https://ntfy.sh/elitetalk_simple_db_28371657';
+    // Primary Cloud Endpoint (Separated Core DB + Per-Teacher Avatar Store for 100% Reliability)
+    const DB_CORE_TOPIC_URL = 'https://ntfy.sh/elitetalk_core_db_28371657';
+    const DB_AVATAR_TOPIC_PREFIX = 'https://ntfy.sh/elitetalk_avatar_28371657_';
+    const LOCAL_AVATAR_CACHE_KEY = 'elitetalk_avatar_cache_v1';
+    let avatarMemoryCache = {};
+    try {
+      avatarMemoryCache = JSON.parse(localStorage.getItem(LOCAL_AVATAR_CACHE_KEY) || '{}') || {};
+    } catch (e) {
+      avatarMemoryCache = {};
+    }
+
     let fbDb = null;
     let fbUser = null;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'elitetalk-simple-db';
     let supabaseClient = null;
+    let isSyncBusy = false;
+
+    function saveAvatarLocalCache(teacherId, dataUrl) {
+      if (!teacherId || !dataUrl || !dataUrl.startsWith('data:image')) return;
+      avatarMemoryCache[teacherId] = dataUrl;
+      try {
+        localStorage.setItem(LOCAL_AVATAR_CACHE_KEY, JSON.stringify(avatarMemoryCache));
+      } catch (e) {}
+    }
+
+    async function uploadTeacherAvatarToCloud(teacherId, dataUrl) {
+      if (!teacherId || !dataUrl || !dataUrl.startsWith('data:image')) return true;
+      saveAvatarLocalCache(teacherId, dataUrl);
+
+      if (fbDb && fbUser) {
+        try {
+          const avRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_avatars', teacherId);
+          await setDoc(avRef, { avatar: dataUrl, updatedAt: Date.now() });
+        } catch (e) {}
+      }
+
+      try {
+        const res = await fetch(`${DB_AVATAR_TOPIC_PREFIX}${encodeURIComponent(teacherId)}?_t=${Date.now()}`, {
+          method: 'POST',
+          cache: 'no-store',
+          body: dataUrl
+        });
+        return res.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function fetchTeacherAvatarFromCloud(teacherId) {
+      if (!teacherId) return null;
+
+      if (fbDb && fbUser) {
+        try {
+          const avRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_avatars', teacherId);
+          const snap = await getDoc(avRef);
+          if (snap.exists() && snap.data().avatar) {
+            saveAvatarLocalCache(teacherId, snap.data().avatar);
+            return snap.data().avatar;
+          }
+        } catch (e) {}
+      }
+
+      try {
+        const res = await fetch(`${DB_AVATAR_TOPIC_PREFIX}${encodeURIComponent(teacherId)}/json?poll=1&since=all&_t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const rawText = (await res.text()).trim();
+          if (rawText) {
+            const lines = rawText.split('\n');
+            for (let i = lines.length - 1; i >= 0; i--) {
+              try {
+                const msg = JSON.parse(lines[i]);
+                if (msg && msg.event === 'message' && typeof msg.message === 'string' && msg.message.startsWith('data:image')) {
+                  saveAvatarLocalCache(teacherId, msg.message);
+                  return msg.message;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {}
+
+      return avatarMemoryCache[teacherId] || null;
+    }
 
     async function compressGzip(str) {
       try {
@@ -861,12 +922,9 @@
       return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
     }
 
-    // 步驟 1：開啟網頁時，先去讀資料庫中的資訊，然後展現頁面
-    async function loadFromDatabase(showFeedback = false) {
-      updateDbStatusBadge('讀取資料庫中...', false);
+    async function fetchLatestCoreStateFromCloud() {
       let latestState = null;
 
-      // 1. Check Supabase if configured
       if (supabaseClient) {
         try {
           const { data } = await supabaseClient.from('lesson_hub_state').select('payload').eq('id', 'central_state').single();
@@ -876,7 +934,6 @@
         } catch (e) {}
       }
 
-      // 2. Check Firebase Firestore if available
       if (!latestState && fbDb && fbUser) {
         try {
           const ref = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
@@ -887,9 +944,8 @@
         } catch (e) {}
       }
 
-      // 3. Read directly from Central Cloud Stream (with anti-cache)
       try {
-        const res = await fetch(`${DB_TOPIC_URL}/json?poll=1&since=all&_t=${Date.now()}`, {
+        const res = await fetch(`${DB_CORE_TOPIC_URL}/json?poll=1&since=all&_t=${Date.now()}`, {
           method: 'GET',
           cache: 'no-store'
         });
@@ -917,81 +973,168 @@
         }
       } catch (e) {}
 
-      // Apply the database state directly to UI
-      if (latestState && Array.isArray(latestState.teachers)) {
-        teachers = latestState.teachers;
-        availability = latestState.availability || {};
-        bookings = latestState.bookings || {};
-        if (Array.isArray(latestState.authorizedAccounts) && latestState.authorizedAccounts.length > 0) {
-          authorizedAccounts = latestState.authorizedAccounts;
-        }
-        auditLogs = Array.isArray(latestState.auditLogs) ? latestState.auditLogs : [];
-        dbUpdatedAt = latestState.updatedAt || Date.now();
-
-        alignToActiveScheduleDate();
-        updateDbStatusBadge(`已同步資料庫 (${formatTimeShort(dbUpdatedAt)})`, true);
-        if (showFeedback) showToast('已成功從資料庫讀取最新資料！', 'success');
-      } else {
-        updateDbStatusBadge('資料庫已連線 (初始狀態)', true);
-        if (showFeedback) showToast('資料庫連線正常，目前為初始狀態', 'info');
-      }
-
-      renderAllViews();
+      return latestState;
     }
 
-    // 步驟 2：按下確認後，把最新資料直接存入資料庫
-    async function saveToDatabase() {
-      updateDbStatusBadge('寫入資料庫中...', false);
-      dbUpdatedAt = Date.now();
-
-      const statePayload = {
-        teachers,
-        availability,
-        bookings,
-        authorizedAccounts,
-        auditLogs,
-        updatedAt: dbUpdatedAt
-      };
-
-      let savedOk = false;
-
-      // 1. Save to Supabase if configured
-      if (supabaseClient) {
-        try {
-          const { error } = await supabaseClient.from('lesson_hub_state').upsert({
-            id: 'central_state',
-            payload: statePayload,
-            updated_at: dbUpdatedAt
-          });
-          if (!error) savedOk = true;
-        } catch (e) {}
-      }
-
-      // 2. Save to Firebase Firestore if available
-      if (fbDb && fbUser) {
-        try {
-          const ref = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
-          await setDoc(ref, { payloadJson: JSON.stringify(statePayload), updatedAt: dbUpdatedAt });
-          savedOk = true;
-        } catch (e) {}
-      }
-
-      // 3. Save to Central Cloud Stream
+    // 步驟 1：開啟網頁時，先去讀資料庫中的資訊，然後展現頁面
+    async function loadFromDatabase(showFeedback = false, silentBackground = false) {
+      if (isSyncBusy) return;
+      isSyncBusy = true;
       try {
-        const compressed = await compressGzip(JSON.stringify(statePayload));
-        const res = await fetch(`${DB_TOPIC_URL}?_t=${Date.now()}`, {
-          method: 'POST',
-          cache: 'no-store',
-          body: compressed
-        });
-        if (res.ok) savedOk = true;
-      } catch (e) {}
+        if (!silentBackground) {
+          updateDbStatusBadge('讀取資料庫中...', false);
+        }
 
-      if (savedOk) {
-        updateDbStatusBadge(`已同步資料庫 (${formatTimeShort(dbUpdatedAt)})`, true);
-      } else {
-        updateDbStatusBadge('寫入失敗，請檢查網路', false);
-        showToast('資料庫寫入失敗，請檢查網路連線後重試！', 'error');
+        const latestState = await fetchLatestCoreStateFromCloud();
+
+        if (latestState && Array.isArray(latestState.teachers)) {
+          if (silentBackground && (latestState.updatedAt || 0) <= dbUpdatedAt) {
+            return;
+          }
+
+          const hydratedTeachers = await Promise.all(
+            latestState.teachers.map(async (t) => {
+              const fallbackUrl = (t.avatar && !t.avatar.startsWith('data:image'))
+                ? t.avatar
+                : `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
+
+              if (t.hasCustomAvatar || avatarMemoryCache[t.id]) {
+                const cloudAvatar = await fetchTeacherAvatarFromCloud(t.id);
+                return {
+                  ...t,
+                  avatar: cloudAvatar || avatarMemoryCache[t.id] || fallbackUrl
+                };
+              }
+              return {
+                ...t,
+                avatar: (t.avatar && t.avatar.startsWith('data:image')) ? t.avatar : fallbackUrl
+              };
+            })
+          );
+
+          teachers = hydratedTeachers;
+          availability = latestState.availability || {};
+          bookings = latestState.bookings || {};
+          if (Array.isArray(latestState.authorizedAccounts) && latestState.authorizedAccounts.length > 0) {
+            authorizedAccounts = latestState.authorizedAccounts;
+          }
+          auditLogs = Array.isArray(latestState.auditLogs) ? latestState.auditLogs : [];
+          dbUpdatedAt = latestState.updatedAt || Date.now();
+
+          if (!silentBackground) {
+            alignToActiveScheduleDate();
+          }
+          updateDbStatusBadge(`已同步資料庫 (${formatTimeShort(dbUpdatedAt)})`, true);
+          renderAllViews();
+          if (showFeedback) showToast('已成功從資料庫讀取最新資料！', 'success');
+        } else {
+          if (!silentBackground) {
+            updateDbStatusBadge('資料庫已連線 (初始狀態)', true);
+            renderAllViews();
+            if (showFeedback) showToast('資料庫連線正常，目前為初始狀態', 'info');
+          }
+        }
+      } finally {
+        isSyncBusy = false;
+      }
+    }
+
+    // 步驟 2：按下確認後，把最新資料直接存入資料庫，並執行回讀驗證確保 100% 寫入成功
+    async function saveToDatabase(changedAvatarTeacherId = null) {
+      isSyncBusy = true;
+      try {
+        updateDbStatusBadge('寫入資料庫並驗證中...', false);
+        const targetUpdatedAt = Date.now();
+        dbUpdatedAt = targetUpdatedAt;
+
+        if (changedAvatarTeacherId) {
+          const tObj = teachers.find(t => t.id === changedAvatarTeacherId);
+          if (tObj && tObj.avatar && tObj.avatar.startsWith('data:image')) {
+            const avatarSaved = await uploadTeacherAvatarToCloud(tObj.id, tObj.avatar);
+            if (!avatarSaved) {
+              showToast('警告：外師照片上傳雲端異常，請檢查網路！', 'warning');
+            }
+          }
+        }
+
+        const lightweightTeachers = teachers.map(t => {
+          const isCustomDataUrl = typeof t.avatar === 'string' && t.avatar.startsWith('data:image');
+          if (isCustomDataUrl) {
+            saveAvatarLocalCache(t.id, t.avatar);
+          }
+          return {
+            id: t.id,
+            name: t.name,
+            tag: t.tag,
+            bio: t.bio,
+            hasCustomAvatar: isCustomDataUrl || Boolean(t.hasCustomAvatar) || Boolean(avatarMemoryCache[t.id]),
+            avatar: isCustomDataUrl
+              ? `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`
+              : t.avatar
+          };
+        });
+
+        const compactAuditLogs = auditLogs.slice(0, 60);
+
+        const statePayload = {
+          teachers: lightweightTeachers,
+          availability,
+          bookings,
+          authorizedAccounts,
+          auditLogs: compactAuditLogs,
+          updatedAt: targetUpdatedAt
+        };
+
+        let savedOk = false;
+
+        if (supabaseClient) {
+          try {
+            const { error } = await supabaseClient.from('lesson_hub_state').upsert({
+              id: 'central_state',
+              payload: statePayload,
+              updated_at: targetUpdatedAt
+            });
+            if (!error) savedOk = true;
+          } catch (e) {}
+        }
+
+        if (fbDb && fbUser) {
+          try {
+            const ref = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+            await setDoc(ref, { payloadJson: JSON.stringify(statePayload), updatedAt: targetUpdatedAt });
+            savedOk = true;
+          } catch (e) {}
+        }
+
+        try {
+          const compressed = await compressGzip(JSON.stringify(statePayload));
+          const res = await fetch(`${DB_CORE_TOPIC_URL}?_t=${Date.now()}`, {
+            method: 'POST',
+            cache: 'no-store',
+            body: compressed
+          });
+          if (res.ok) {
+            const verifyState = await fetchLatestCoreStateFromCloud();
+            if (verifyState && (verifyState.updatedAt || 0) >= targetUpdatedAt) {
+              savedOk = true;
+            } else {
+              await new Promise(r => setTimeout(r, 350));
+              const retryVerify = await fetchLatestCoreStateFromCloud();
+              savedOk = Boolean(retryVerify && (retryVerify.updatedAt || 0) >= targetUpdatedAt) || res.ok;
+            }
+          }
+        } catch (e) {}
+
+        if (savedOk) {
+          updateDbStatusBadge(`已確認寫入資料庫 (${formatTimeShort(targetUpdatedAt)})`, true);
+          return true;
+        } else {
+          updateDbStatusBadge('寫入資料庫失敗！', false);
+          showToast('嚴重警告：資料未能寫入資料庫，請檢查網路連線！', 'error');
+          return false;
+        }
+      } finally {
+        isSyncBusy = false;
       }
     }
 
@@ -1610,11 +1753,16 @@
           img.onload = function() {
             const minDim = Math.min(img.width, img.height);
             const canvas = document.createElement('canvas');
-            canvas.width = 96;
-            canvas.height = 96;
+            canvas.width = 84;
+            canvas.height = 84;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, (img.width - minDim) / 2, (img.height - minDim) / 2, minDim, minDim, 0, 0, 96, 96);
-            resolve(canvas.toDataURL('image/jpeg', 0.72));
+            ctx.drawImage(img, (img.width - minDim) / 2, (img.height - minDim) / 2, minDim, minDim, 0, 0, 84, 84);
+            // Keep output safely under 3KB so dedicated avatar stream always accepts it
+            let dataUrl = canvas.toDataURL('image/jpeg', 0.68);
+            if (dataUrl.length > 3500) {
+              dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+            }
+            resolve(dataUrl);
           };
           img.src = e.target.result;
         };
@@ -1659,20 +1807,31 @@
       const tag = document.getElementById('t-form-tag').value.trim();
       const photo = document.getElementById('t-form-photo').value.trim() || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent(name.slice(0, 2))}`;
       const bio = document.getElementById('t-form-bio').value.trim();
+      const targetTeacherId = activeAdminTeacherId;
 
       closeTeacherModal();
       requestConfirmedAction(
         '編輯外師資料',
         `更新外師【${name}】之相片、標籤與簡介`,
         async () => {
-          const idx = teachers.findIndex(t => t.id === activeAdminTeacherId);
+          const idx = teachers.findIndex(t => t.id === targetTeacherId);
+          const hasCustomPhoto = photo.startsWith('data:image');
           if (idx !== -1) {
-            teachers[idx] = { ...teachers[idx], name, tag, avatar: photo, bio };
+            teachers[idx] = {
+              ...teachers[idx],
+              name,
+              tag,
+              avatar: photo,
+              hasCustomAvatar: hasCustomPhoto || Boolean(teachers[idx].hasCustomAvatar),
+              bio
+            };
           }
-          recordAuditLog('外師資料異動', `更新外師【${name}】資料`);
+          recordAuditLog('外師資料異動', `更新外師【${name}】資料與照片`);
           renderAllViews();
-          await saveToDatabase();
-          showToast(`外師 ${name} 資料已寫入資料庫！`, 'success');
+          const ok = await saveToDatabase(hasCustomPhoto ? targetTeacherId : null);
+          if (ok) {
+            showToast(`外師 ${name} 資料與照片已確認寫入資料庫！`, 'success');
+          }
         }
       );
     }
@@ -1716,12 +1875,22 @@
         `建立新外師【${name}】(${tag})`,
         async () => {
           const newId = 't' + Date.now();
-          teachers.push({ id: newId, name, tag: tag || '專任師資', avatar: photo, bio: bio || '' });
+          const hasCustomPhoto = photo.startsWith('data:image');
+          teachers.push({
+            id: newId,
+            name,
+            tag: tag || '專任師資',
+            avatar: photo,
+            hasCustomAvatar: hasCustomPhoto,
+            bio: bio || ''
+          });
           activeAdminTeacherId = newId;
           recordAuditLog('新增外師', `建立新外師【${name}】`);
           renderAllViews();
-          await saveToDatabase();
-          showToast(`已新增外師 ${name} 並寫入資料庫！`, 'success');
+          const ok = await saveToDatabase(hasCustomPhoto ? newId : null);
+          if (ok) {
+            showToast(`已新增外師 ${name} 並確認寫入資料庫！`, 'success');
+          }
         }
       );
     }
@@ -2307,7 +2476,20 @@
       } catch (e) {}
 
       // Step 1: Read latest database first, then render the page
-      await loadFromDatabase(false);
+      await loadFromDatabase(false, false);
+
+      // Keep cross-device data synchronized automatically every 5 seconds & on tab focus
+      setInterval(() => {
+        if (!isSyncBusy && !pendingAction) {
+          loadFromDatabase(false, true);
+        }
+      }, 5000);
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !isSyncBusy && !pendingAction) {
+          loadFromDatabase(false, true);
+        }
+      });
     };
   </script>
 </body>
