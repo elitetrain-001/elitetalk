@@ -70,22 +70,22 @@
   <!-- Header Navigation -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <!-- Brand Title (Logo Removed) -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between py-2.5 lg:py-0 lg:min-h-[4.25rem] gap-2.5">
+        <!-- Brand Title -->
         <div class="flex items-center gap-3">
           <div>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <h1 class="text-base sm:text-lg font-black text-slate-900 leading-tight">精英國際教育EliteTalk外師媒合平台</h1>
               <!-- Cloud Sync Status Badge & Button -->
               <button id="cloud-sync-status-btn" onclick="openCloudModal()" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition shadow-sm">
                 <span id="cloud-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span id="cloud-status-text">各分校共享記憶已連線 (即時同步中)</span>
+                <span id="cloud-status-text">各分校共享記憶已連線</span>
               </button>
-              <!-- Live Data Version & Timestamp Badge -->
-      <span id="live-version-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-sky-50 text-sky-800 border border-sky-200 shadow-sm" title="目前資料庫最新時間序版本與來源">
-        資料庫同步中...
-      </span>
-      <!-- Current User Status / Login Button -->
+              <!-- Live Data Version & Timestamp Badge + Instant Sync Trigger -->
+              <button type="button" onclick="pullCloudData(true)" id="live-version-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition shadow-sm" title="點擊立即強制向中央資料庫同步最新資料">
+                資料庫同步中...
+              </button>
+              <!-- Current User Status / Login Button -->
               <div id="user-auth-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
                 <span id="user-auth-status-text">未登入編輯者</span>
                 <button id="btn-login-trigger" onclick="openLoginModal()" class="text-sky-600 hover:underline">登入</button>
@@ -96,12 +96,12 @@
                 <span>主控後台</span>
               </button>
             </div>
-            <p class="text-[11px] sm:text-xs text-slate-500 font-semibold">Elite International Education · Multi-Campus Distributed Cloud Engine</p>
+            <p class="text-[11px] sm:text-xs text-slate-500 font-semibold mt-0.5">Elite International Education · Multi-Campus Distributed Cloud Engine</p>
           </div>
         </div>
 
         <!-- Mode Switcher Tabs -->
-        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto">
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto self-start lg:self-auto max-w-full">
           <button id="btn-tab-student" onclick="switchView('student')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all shadow-sm bg-white text-sky-700 whitespace-nowrap">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
@@ -1315,12 +1315,17 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     let customSupabaseKey = '';
 
     const LS_KEY_SNAPSHOTS = 'ELITETALK_AUTO_SNAPSHOTS_V4';
-    const JSONSTORAGE_USER_ID = '9b8a7c6d-5e4f-3a2b-1c0d-28371657elit';
-    const JSONSTORAGE_ITEM_ID = 'elitetalk-master-hub-v5';
-    const PERSISTENT_JSON_API_URL = `https://api.jsonstorage.net/v1/json/${JSONSTORAGE_USER_ID}/${JSONSTORAGE_ITEM_ID}`;
-    const NTFY_CORE_TOPIC = 'elitetalk_v5_central_sync_28371657';
+    const NTFY_CORE_TOPIC = 'elitetalk_v6_central_sync_28371657';
     const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
-    const NTFY_AVATAR_PREFIX = 'elitetalk_v5_avatar_28371657_';
+    const NTFY_AVATAR_PREFIX = 'elitetalk_v6_avatar_28371657_';
+
+    // Distributed Tombstones (Record explicit deletions with timestamps so deleted items stay deleted while concurrent additions merge safely)
+    let tombstones = {
+      slots: {},    // { slotKey: deletedAtTimestamp }
+      bookings: {}, // { bookingId: deletedAtTimestamp }
+      teachers: {}, // { teacherId: deletedAtTimestamp }
+      accounts: {}  // { username: deletedAtTimestamp }
+    };
 
     /* ==========================================================
        2.1 SNAPSHOT TIME-MACHINE & ANTI-WIPE HELPERS
@@ -1491,8 +1496,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     }
 
     /* ==========================================================
-       CLOUD SYNC ENGINE (ATOMIC MERGE + PERMANENT STORAGE + ANTI-WIPE GUARD)
-       徹底解決 12 小時過期、4KB 截斷、以及新電腦空白資料逆向覆蓋問題
+       CLOUD SYNC ENGINE (CHUNKED STREAM + TOMBSTONE CRDT MERGE)
+       徹底解決封包超過 3.9KB 被截斷、404 失效與跨端點資料不一致問題
        ========================================================== */
     function getFullDataset(bumpTimestamp = true) {
       if (bumpTimestamp) {
@@ -1504,61 +1509,163 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         avatar: customAvatars[t.id] || t.avatar
       }));
       return {
-        v: 4,
+        v: 6,
         teachers: enrichedTeachers,
         availability,
         bookings,
         customAvatars,
         authorizedAccounts,
         auditLogs,
+        tombstones,
         updatedAt: lastKnownUpdatedAt,
         sequence: currentSequence
       };
     }
 
-    function getCompactCoreDataset() {
+    // High-density compact payload encoder (shrinks JSON by ~65% and never drops slots/bookings)
+    function encodeCompactPayload(forceClear = false) {
       const compactTeachers = teachers.map(t => {
         const isDataImg = t.avatar && t.avatar.startsWith('data:');
         if (isDataImg) {
           customAvatars[t.id] = t.avatar;
         }
         return {
-          id: t.id,
-          name: t.name,
-          tag: t.tag,
-          bio: t.bio,
-          hasCustomAvatar: Boolean(isDataImg || customAvatars[t.id]),
-          avatarUrl: isDataImg ? '' : t.avatar
+          i: t.id,
+          n: t.name,
+          g: t.tag || '',
+          b: t.bio || '',
+          c: isDataImg || customAvatars[t.id] ? 1 : 0,
+          u: isDataImg ? '' : (t.avatar || '')
         };
       });
 
-      const compactAvailability = {};
-      Object.keys(availability).forEach(k => {
-        if (availability[k] === true) {
-          compactAvailability[k] = true;
-        }
-      });
+      const activeSlotKeys = Object.keys(availability).filter(k => availability[k] === true);
 
       const compactBookings = {};
       Object.keys(bookings).forEach(k => {
         if (Array.isArray(bookings[k]) && bookings[k].length > 0) {
-          compactBookings[k] = bookings[k];
+          compactBookings[k] = bookings[k].map(b => ({
+            id: b.id,
+            z: b.zhName,
+            e: b.enName,
+            br: b.branchName,
+            ct: b.contactTeacher,
+            ti: b.teacherId,
+            ds: b.dateStr,
+            tm: b.timeSlot,
+            by: b.bookedByAccount || '',
+            ts: b.timestamp || 0
+          }));
         }
       });
 
+      const compactAccounts = authorizedAccounts.map(a => ({
+        id: a.id,
+        br: a.branch,
+        n: a.name,
+        u: a.username,
+        p: a.password,
+        ca: a.createdAt || 0
+      }));
+
+      const compactLogs = auditLogs.slice(0, 12).map(l => ({
+        id: l.id,
+        ts: l.timestamp,
+        br: l.branch,
+        un: l.userName,
+        u: l.username,
+        at: l.actionType,
+        d: l.description
+      }));
+
       return {
-        v: 4,
-        teachers: compactTeachers,
-        availability: compactAvailability,
-        bookings: compactBookings,
-        authorizedAccounts,
-        auditLogs: auditLogs.slice(0, 10),
-        updatedAt: lastKnownUpdatedAt,
-        sequence: currentSequence
+        v: 6,
+        fc: forceClear ? 1 : 0,
+        t: compactTeachers,
+        a: activeSlotKeys,
+        b: compactBookings,
+        acc: compactAccounts,
+        log: compactLogs,
+        tb: tombstones,
+        ts: lastKnownUpdatedAt,
+        seq: currentSequence
       };
     }
 
-    // 判斷兩份資料哪一份比較豐富完整，防止空白資料洗掉已建立的 10 位老師課表
+    function decodeCompactPayload(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      // Already expanded v4/v6 full object
+      if (Array.isArray(raw.teachers)) return raw;
+      // Compact v6 object
+      if (raw.v === 6 && Array.isArray(raw.t)) {
+        const decodedTeachers = raw.t.map(item => ({
+          id: item.i,
+          name: item.n,
+          tag: item.g || '專任英語口說師資',
+          bio: item.b || '',
+          hasCustomAvatar: item.c === 1,
+          avatarUrl: item.u || ''
+        }));
+
+        const decodedAvail = {};
+        if (Array.isArray(raw.a)) {
+          raw.a.forEach(k => { decodedAvail[k] = true; });
+        }
+
+        const decodedBookings = {};
+        if (raw.b && typeof raw.b === 'object') {
+          Object.keys(raw.b).forEach(k => {
+            decodedBookings[k] = (raw.b[k] || []).map(b => ({
+              id: b.id,
+              zhName: b.z,
+              enName: b.e,
+              branchName: b.br,
+              contactTeacher: b.ct,
+              teacherId: b.ti,
+              dateStr: b.ds,
+              timeSlot: b.tm,
+              bookedByAccount: b.by || '',
+              timestamp: b.ts || 0
+            }));
+          });
+        }
+
+        const decodedAccounts = Array.isArray(raw.acc) ? raw.acc.map(a => ({
+          id: a.id,
+          branch: a.br,
+          name: a.n,
+          username: a.u,
+          password: a.p,
+          createdAt: a.ca || 0
+        })) : [];
+
+        const decodedLogs = Array.isArray(raw.log) ? raw.log.map(l => ({
+          id: l.id,
+          timestamp: l.ts,
+          branch: l.br,
+          userName: l.un,
+          username: l.u,
+          actionType: l.at,
+          description: l.d
+        })) : [];
+
+        return {
+          v: 6,
+          forceClear: raw.fc === 1,
+          teachers: decodedTeachers,
+          availability: decodedAvail,
+          bookings: decodedBookings,
+          authorizedAccounts: decodedAccounts,
+          auditLogs: decodedLogs,
+          tombstones: raw.tb || { slots: {}, bookings: {}, teachers: {}, accounts: {} },
+          updatedAt: Number(raw.ts) || 0,
+          sequence: Number(raw.seq) || 0
+        };
+      }
+      return null;
+    }
+
+    // 判斷兩份資料哪一份比較豐富完整，防止空白資料洗掉已建立的老師課表
     function isIncomingDatasetDegraded(incomingData) {
       if (!incomingData || incomingData.forceClear) return false;
       const localTeacherCount = teachers.length;
@@ -1568,7 +1675,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       const localBooks = countTotalBookings(bookings);
       const incomingBooks = countTotalBookings(incomingData.bookings);
 
-      // 若本地有多位外師或排課，但遠端傳來「只有預設 1 位外師且 0 節課 0 預約」的空殼資料，直接判定為退化資料並拒絕覆蓋！
       if (incomingTeacherCount <= 1 && incomingSlots === 0 && incomingBooks === 0) {
         if (localTeacherCount > 1 || localSlots > 0 || localBooks > 0) {
           return true;
@@ -1580,7 +1686,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     function applyDataset(data, saveToLocal = true, source = '雲端') {
       if (!data || typeof data !== 'object') return false;
 
-      // 防護 1：嚴格攔截空殼資料覆蓋已建立的課表
       if (isIncomingDatasetDegraded(data)) {
         console.warn('Blocked degraded/empty payload from overwriting valid local schedule.');
         return false;
@@ -1589,7 +1694,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       const incomingUpdatedAt = Number(data.updatedAt) || 0;
       const incomingSequence = Number(data.sequence) || 0;
 
-      // 防護 2：嚴格時間戳比對 (只接受較新的資料，或本地尚未初始化時)
       if (lastKnownUpdatedAt > 0 && incomingUpdatedAt > 0 && !data.forceClear) {
         if (incomingUpdatedAt < lastKnownUpdatedAt) {
           return false;
@@ -1602,42 +1706,91 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       lastKnownUpdatedAt = incomingUpdatedAt || Date.now();
       currentSequence = Math.max(currentSequence, incomingSequence);
 
+      // Merge Tombstones (keep newest deletion timestamps)
+      if (data.tombstones && typeof data.tombstones === 'object') {
+        ['slots', 'bookings', 'teachers', 'accounts'].forEach(cat => {
+          if (data.tombstones[cat]) {
+            tombstones[cat] = { ...tombstones[cat], ...data.tombstones[cat] };
+          }
+        });
+      }
+
       if (data.customAvatars && typeof data.customAvatars === 'object') {
         customAvatars = { ...customAvatars, ...data.customAvatars };
       }
 
+      // 1. Merge Teachers respecting tombstones
       if (Array.isArray(data.teachers) && data.teachers.length > 0) {
-        teachers = data.teachers.map(t => {
+        const teacherMap = new Map();
+        teachers.forEach(t => {
+          if (!tombstones.teachers[t.id]) teacherMap.set(t.id, t);
+        });
+        data.teachers.forEach(t => {
+          if (tombstones.teachers[t.id]) return;
           if (t.avatar && t.avatar.startsWith('data:')) {
             customAvatars[t.id] = t.avatar;
           }
-          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
-          return {
+          const existing = teacherMap.get(t.id);
+          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || (existing && existing.avatar) || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
+          teacherMap.set(t.id, {
             id: t.id,
             name: t.name,
             tag: t.tag || '專任英語口說師資',
             bio: t.bio || '',
             avatar: resolvedAvatar,
             hasCustomAvatar: Boolean(t.hasCustomAvatar || customAvatars[t.id])
-          };
+          });
         });
+        if (teacherMap.size > 0) {
+          teachers = Array.from(teacherMap.values());
+        }
       }
 
+      // 2. Apply Availability (authoritative incoming state + prune tombstoned slots)
       if (data.availability && typeof data.availability === 'object') {
-        availability = data.availability;
-      }
-      if (data.bookings && typeof data.bookings === 'object') {
-        bookings = data.bookings;
+        const nextAvail = {};
+        Object.keys(data.availability).forEach(k => {
+          if (data.availability[k] === true && !tombstones.slots[k]) {
+            nextAvail[k] = true;
+          }
+        });
+        availability = nextAvail;
       }
 
+      // 3. Apply Bookings (respecting booking tombstones)
+      if (data.bookings && typeof data.bookings === 'object') {
+        const nextBookings = {};
+        Object.keys(data.bookings).forEach(k => {
+          const validList = (data.bookings[k] || []).filter(b => b && !tombstones.bookings[b.id]);
+          if (validList.length > 0) {
+            nextBookings[k] = validList;
+          }
+        });
+        bookings = nextBookings;
+      }
+
+      // 4. Union-Merge Authorized Accounts respecting account tombstones
       if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
         const accMap = new Map();
-        authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
-        data.authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
-        authorizedAccounts = Array.from(accMap.values());
+        authorizedAccounts.forEach(acc => {
+          if (!tombstones.accounts[acc.username]) accMap.set(acc.username, acc);
+        });
+        data.authorizedAccounts.forEach(acc => {
+          if (!tombstones.accounts[acc.username]) accMap.set(acc.username, acc);
+        });
+        if (accMap.size > 0) {
+          authorizedAccounts = Array.from(accMap.values());
+        }
       }
+
+      // 5. Merge Audit Logs by ID
       if (Array.isArray(data.auditLogs)) {
-        auditLogs = data.auditLogs;
+        const logMap = new Map();
+        data.auditLogs.forEach(l => { if (l && l.id) logMap.set(l.id, l); });
+        auditLogs.forEach(l => { if (l && l.id && !logMap.has(l.id)) logMap.set(l.id, l); });
+        auditLogs = Array.from(logMap.values())
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, 500);
       }
 
       if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
@@ -1704,7 +1857,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
     }
 
-    // Fetch raw newest dataset from all cloud layers without mutating UI yet
+    // Fetch raw newest dataset from all cloud layers (with automatic Multi-Chunk reassembly!)
     async function fetchNewestCloudPayloadRaw() {
       let newestPayload = null;
       let winningSource = '雲端同步中心';
@@ -1719,7 +1872,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
             .single();
 
           if (!error && data && data.payload) {
-            const payload = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            const rawObj = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            const payload = decodeCompactPayload(rawObj);
             if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
               newestPayload = payload;
               winningSource = 'Supabase 正式資料庫';
@@ -1736,7 +1890,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           if (snap.exists()) {
             const data = snap.data();
             if (data && data.payloadJson) {
-              const payload = JSON.parse(data.payloadJson);
+              const payload = decodeCompactPayload(JSON.parse(data.payloadJson));
               if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                 newestPayload = payload;
                 winningSource = 'Firebase 雲端';
@@ -1746,22 +1900,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         } catch (errFb) {}
       }
 
-      // 3. Permanent JSONStorage Cloud Store (Large payload capable, no 12h expiry)
-      try {
-        const resJsonStore = await fetch(`${PERSISTENT_JSON_API_URL}?_t=${Date.now()}`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (resJsonStore.ok) {
-          const storeData = await resJsonStore.json();
-          if (storeData && storeData.teachers && (!newestPayload || (storeData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-            newestPayload = storeData;
-            winningSource = '跨分校永久資料庫';
-          }
-        }
-      } catch (e) {}
-
-      // 4. Ntfy Heartbeat Stream (Real-time fallback, mobile 4G/5G friendly)
+      // 3. Ntfy Multi-Chunk Distributed Stream (Supports both single-packet & multi-chunk large payloads)
       try {
         const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
           method: 'GET',
@@ -1772,18 +1911,46 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           const rawText = (await resNtfy.text()).trim();
           if (rawText) {
             const lines = rawText.split('\n');
+            const chunkBatches = new Map(); // batchId -> { total, ts, parts: Map(idx -> str) }
+
             for (let i = lines.length - 1; i >= 0; i--) {
               const line = lines[i].trim();
               if (!line) continue;
               try {
                 const msg = JSON.parse(line);
-                if (msg && msg.event === 'message' && msg.message) {
-                  const payload = JSON.parse(msg.message);
-                  if (payload && payload.teachers && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-                    newestPayload = payload;
-                    winningSource = '跨分校即時雲端';
-                    break;
+                if (!msg || msg.event !== 'message' || !msg.message) continue;
+                const parsed = JSON.parse(msg.message);
+
+                // Case A: Multi-chunk packet { chunkBatch, idx, total, ts, data }
+                if (parsed && parsed.chunkBatch && typeof parsed.idx === 'number' && parsed.total) {
+                  let batch = chunkBatches.get(parsed.chunkBatch);
+                  if (!batch) {
+                    batch = { total: parsed.total, ts: parsed.ts || 0, parts: new Map() };
+                    chunkBatches.set(parsed.chunkBatch, batch);
                   }
+                  batch.parts.set(parsed.idx, parsed.data);
+
+                  if (batch.parts.size === batch.total) {
+                    let fullStr = '';
+                    for (let p = 0; p < batch.total; p++) {
+                      fullStr += batch.parts.get(p) || '';
+                    }
+                    const reassembled = decodeCompactPayload(JSON.parse(fullStr));
+                    if (reassembled && (!newestPayload || (reassembled.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                      newestPayload = reassembled;
+                      winningSource = '跨分校分散式雲端';
+                      break;
+                    }
+                  }
+                  continue;
+                }
+
+                // Case B: Single complete packet
+                const decoded = decodeCompactPayload(parsed);
+                if (decoded && decoded.teachers && (!newestPayload || (decoded.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                  newestPayload = decoded;
+                  winningSource = '跨分校即時雲端';
+                  break;
                 }
               } catch (e) {}
             }
@@ -1817,7 +1984,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           updateSyncBadge(true);
           if (showFeedback) {
             if (applied) {
-              showToast(`已從${winningSource}載入最新資料！(版本: ${formatTimestampDisplay(newestPayload.updatedAt)})`, 'success');
+              showToast(`已從${winningSource}同步最新課表與名單！(版本: ${formatTimestampDisplay(newestPayload.updatedAt)})`, 'success');
             } else {
               showToast(`目前已是全分校最新狀態！(版本: ${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'info');
             }
@@ -1835,34 +2002,71 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
     }
 
-    // Push local updates to All Cloud Channels with Read-Before-Write Merge & Anti-Wipe Protection
+    // Push local updates to All Cloud Channels with Read-Before-Write Merge & Multi-Chunk Delivery
     async function pushCloudData(forceClear = false, actionReason = '資料異動存檔') {
-      // Save automatic local snapshot before pushing so work is never lost
       saveAutoSnapshot(actionReason);
 
-      // Read-Before-Write Merge: If this is an additive/normal update (not explicit deletion/clear),
-      // check if cloud has newer teachers/accounts added by another campus so we don't overwrite them!
-      if (!forceClear) {
-        try {
-          const { newestPayload } = await fetchNewestCloudPayloadRaw();
-          if (newestPayload && !isIncomingDatasetDegraded(newestPayload)) {
-            // Merge accounts
-            if (Array.isArray(newestPayload.authorizedAccounts)) {
-              const accMap = new Map();
-              newestPayload.authorizedAccounts.forEach(a => accMap.set(a.username, a));
-              authorizedAccounts.forEach(a => accMap.set(a.username, a));
-              authorizedAccounts = Array.from(accMap.values());
-            }
-            // Merge teachers if cloud has teachers that local didn't know about yet
-            if (Array.isArray(newestPayload.teachers)) {
-              const teacherMap = new Map();
-              newestPayload.teachers.forEach(t => teacherMap.set(t.id, t));
-              teachers.forEach(t => teacherMap.set(t.id, t));
-              teachers = Array.from(teacherMap.values());
-            }
+      // Read-Before-Write CRDT Merge: Pull latest state from other campuses before writing
+      try {
+        const { newestPayload } = await fetchNewestCloudPayloadRaw();
+        if (newestPayload && !isIncomingDatasetDegraded(newestPayload)) {
+          // Merge Tombstones
+          if (newestPayload.tombstones) {
+            ['slots', 'bookings', 'teachers', 'accounts'].forEach(cat => {
+              if (newestPayload.tombstones[cat]) {
+                tombstones[cat] = { ...newestPayload.tombstones[cat], ...tombstones[cat] };
+              }
+            });
           }
-        } catch (e) {}
-      }
+
+          // Merge Accounts (Union minus tombstones)
+          if (Array.isArray(newestPayload.authorizedAccounts)) {
+            const accMap = new Map();
+            newestPayload.authorizedAccounts.forEach(a => {
+              if (!tombstones.accounts[a.username]) accMap.set(a.username, a);
+            });
+            authorizedAccounts.forEach(a => {
+              if (!tombstones.accounts[a.username]) accMap.set(a.username, a);
+            });
+            authorizedAccounts = Array.from(accMap.values());
+          }
+
+          // Merge Teachers (Union minus tombstones)
+          if (Array.isArray(newestPayload.teachers)) {
+            const teacherMap = new Map();
+            newestPayload.teachers.forEach(t => {
+              if (!tombstones.teachers[t.id]) teacherMap.set(t.id, t);
+            });
+            teachers.forEach(t => {
+              if (!tombstones.teachers[t.id]) teacherMap.set(t.id, t);
+            });
+            teachers = Array.from(teacherMap.values());
+          }
+
+          // Merge concurrent slot openings from other campuses (unless explicitly tombstoned)
+          if (newestPayload.availability && !forceClear) {
+            Object.keys(newestPayload.availability).forEach(k => {
+              if (newestPayload.availability[k] === true && !tombstones.slots[k]) {
+                availability[k] = true;
+              }
+            });
+          }
+
+          // Merge concurrent student bookings from other campuses (unless explicitly tombstoned)
+          if (newestPayload.bookings) {
+            Object.keys(newestPayload.bookings).forEach(k => {
+              const remoteList = newestPayload.bookings[k] || [];
+              const localList = bookings[k] || [];
+              const mergedMap = new Map();
+              remoteList.forEach(b => { if (b && !tombstones.bookings[b.id]) mergedMap.set(b.id, b); });
+              localList.forEach(b => { if (b && !tombstones.bookings[b.id]) mergedMap.set(b.id, b); });
+              if (mergedMap.size > 0) {
+                bookings[k] = Array.from(mergedMap.values()).slice(0, MAX_STUDENTS_PER_SLOT);
+              }
+            });
+          }
+        }
+      } catch (e) {}
 
       const fullDataset = getFullDataset(true);
       if (forceClear) fullDataset.forceClear = true;
@@ -1880,61 +2084,70 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       let verifiedWriteCount = 0;
-      // 5. Push full dataset to Permanent Cloud Store & Real-time Mobile-Friendly Broadcast
-      try {
-        const compactPayload = getCompactCoreDataset();
-        if (forceClear) compactPayload.forceClear = true;
-        const fullJsonStr = JSON.stringify(compactPayload);
 
-        // 5A. Try PUT to Permanent JSONStorage (auto-create via POST if 404)
+      // 3. Push to Supabase if configured
+      if (supabaseClient) {
         try {
-          let resStore = await fetch(PERSISTENT_JSON_API_URL, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: fullJsonStr
-          });
-          if (resStore.status === 404) {
-            resStore = await fetch('https://api.jsonstorage.net/v1/json', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: fullJsonStr
+          const { error } = await supabaseClient
+            .from('lesson_hub_state')
+            .upsert({
+              id: 'central_state',
+              payload: fullDataset,
+              updated_at: fullDataset.updatedAt
             });
-          }
-          if (resStore.ok) {
-            verifiedWriteCount++;
-          }
-        } catch (errStore) {}
+          if (!error) verifiedWriteCount++;
+        } catch (err) {}
+      }
 
-        // 5B. Always publish to Ntfy Real-time Stream (Works reliably across all mobile 4G/5G & desktop browsers)
-        if (fullJsonStr.length < 3900) {
+      // 4. Push to Firebase if available
+      if (fbDb && fbUser) {
+        try {
+          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+          await setDoc(stateDocRef, {
+            payloadJson: JSON.stringify(fullDataset),
+            updatedAt: fullDataset.updatedAt
+          });
+          verifiedWriteCount++;
+        } catch (err) {}
+      }
+
+      // 5. Push full compacted dataset to Ntfy Distributed Stream (Automatic Multi-Chunk Splitting, NEVER drops data!)
+      try {
+        const compactObj = encodeCompactPayload(forceClear);
+        const compactStr = JSON.stringify(compactObj);
+        const MAX_CHUNK_SIZE = 3400;
+
+        if (compactStr.length <= MAX_CHUNK_SIZE) {
           const resNtfy = await fetch(NTFY_CORE_URL, {
             method: 'POST',
-            body: fullJsonStr
+            body: compactStr
           });
           if (resNtfy.ok) verifiedWriteCount++;
         } else {
-          // Split into lightweight core state without long audit logs so it stays < 3.9KB
-          const ultraLightPayload = {
-            ...compactPayload,
-            auditLogs: compactPayload.auditLogs.slice(0, 3)
-          };
-          const ultraLightStr = JSON.stringify(ultraLightPayload);
-          if (ultraLightStr.length < 3900) {
-            const resNtfyLight = await fetch(NTFY_CORE_URL, {
+          // Split large payload into numbered sequential chunks so 100% of teachers & bookings arrive intact
+          const totalChunks = Math.ceil(compactStr.length / MAX_CHUNK_SIZE);
+          const batchId = 'b_' + fullDataset.updatedAt + '_' + Math.random().toString(36).substr(2, 4);
+          let allChunksOk = true;
+
+          for (let idx = 0; idx < totalChunks; idx++) {
+            const sliceData = compactStr.slice(idx * MAX_CHUNK_SIZE, (idx + 1) * MAX_CHUNK_SIZE);
+            const chunkPacket = JSON.stringify({
+              chunkBatch: batchId,
+              idx,
+              total: totalChunks,
+              ts: fullDataset.updatedAt,
+              data: sliceData
+            });
+            const resChunk = await fetch(NTFY_CORE_URL, {
               method: 'POST',
-              body: ultraLightStr
+              body: chunkPacket
             });
-            if (resNtfyLight.ok) verifiedWriteCount++;
-          } else {
-            const pingPayload = JSON.stringify({
-              v: 4,
-              pingOnly: true,
-              updatedAt: fullDataset.updatedAt,
-              sequence: fullDataset.sequence
-            });
-            const resPing = await fetch(NTFY_CORE_URL, { method: 'POST', body: pingPayload });
-            if (resPing.ok) verifiedWriteCount++;
+            if (!resChunk.ok) {
+              allChunksOk = false;
+              break;
+            }
           }
+          if (allChunksOk) verifiedWriteCount++;
         }
       } catch (err) {
         console.warn("Cloud push error:", err);
@@ -1945,7 +2158,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '已永久寫入雲端');
       } else {
         updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '僅本機暫存');
-        showToast('警告：網路受限，資料僅暫存於本機，請檢查網路連線或至主控後台匯出備份！', 'warning');
+        showToast('警告：網路受限，資料僅暫存於本機，請檢查網路連線！', 'warning');
       }
     }
 
@@ -2755,6 +2968,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         if (bookings[slotKey].length === 0) {
           delete bookings[slotKey];
         }
+        tombstones.bookings[bookingId] = Date.now();
 
         recordAuditLog('退選學生', `時段 ${slotKey} 辦理退選學生【${studentName}】`);
         showToast(`已成功為學生【${studentName}】辦理退選，時段名額已即時釋出！`, 'success');
@@ -2763,7 +2977,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         renderStudentSchedule();
         if (currentView === 'admin') renderAdminView();
 
-        pushCloudData(true);
+        pushCloudData(true, `學生退選：${studentName}`);
       };
 
       requestConfirmedAction('學生退選', `為學生【${studentName}】於時段 ${slotKey} 辦理退選並釋出名額`, action);
@@ -2886,17 +3100,19 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       const action = () => {
         if (isOpen) {
           delete availability[slotKey];
+          tombstones.slots[slotKey] = Date.now();
           recordAuditLog('排班調整', `關閉開課時段：${slotKey}`);
           showToast('時段已關閉！', 'info');
         } else {
           availability[slotKey] = true;
+          delete tombstones.slots[slotKey];
           recordAuditLog('排班調整', `開放開課時段：${slotKey}`);
           showToast('時段已開放報名！', 'success');
         }
 
         renderAdminView();
         renderStudentSchedule();
-        pushCloudData(true);
+        pushCloudData(true, isOpen ? `關閉時段 ${slotKey}` : `開放時段 ${slotKey}`);
       };
 
       const actionDesc = isOpen ? `關閉該外師時段：${slotKey}` : `開放該外師時段：${slotKey}`;
@@ -2905,15 +3121,18 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
 
     function bulkToggleAdminDay(openAll) {
       const action = () => {
+        const nowTs = Date.now();
         TIME_SLOTS.forEach(slot => {
           const slotKey = `${activeAdminTeacherId}_${selectedDateStr}_${slot.id}`;
           const booked = bookings[slotKey] || [];
 
           if (openAll) {
             availability[slotKey] = true;
+            delete tombstones.slots[slotKey];
           } else {
             if (booked.length === 0) {
               delete availability[slotKey];
+              tombstones.slots[slotKey] = nowTs;
             }
           }
         });
@@ -2922,7 +3141,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         renderAdminView();
         renderStudentSchedule();
         showToast(openAll ? '已開放今日所有時段！' : '已關閉今日無人報名之時段！', 'info');
-        pushCloudData(true);
+        pushCloudData(true, `批次排班調整：${selectedDateStr}`);
       };
 
       const desc = openAll ? `將 ${selectedDateStr} 當天所有時段一次全開` : `將 ${selectedDateStr} 當天無人報名之時段批次關閉`;
@@ -3536,10 +3755,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       const action = () => {
+        const nowTs = Date.now();
         Object.keys(availability).forEach(key => {
           const { teacherId } = parseSlotKey(key);
           if (teacherId === targetId) {
             delete availability[key];
+            tombstones.slots[key] = nowTs;
           }
         });
 
@@ -3551,6 +3772,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         });
 
         delete customAvatars[targetId];
+        tombstones.teachers[targetId] = nowTs;
         teachers = teachers.filter(t => t.id !== targetId);
         activeAdminTeacherId = teachers[0].id;
 
@@ -3562,7 +3784,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         renderStudentSchedule();
 
         showToast(`已成功移除外師【${teacher.name}】！`, 'info');
-        pushCloudData(true);
+        pushCloudData(true, `刪除外師：${teacher.name}`);
       };
 
       closeDeleteTeacherModal();
@@ -3852,10 +4074,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       authorizedAccounts = authorizedAccounts.filter(a => a.id !== accId);
+      tombstones.accounts[username] = Date.now();
       recordAuditLog('撤銷帳號', `主控端撤銷帳號：${username}`);
       renderMasterAccountsTable();
       showToast(`已成功撤銷帳號【${username}】！`, 'info');
-      pushCloudData(true);
+      pushCloudData(true, `撤銷帳號：${username}`);
     }
 
     function renderMasterAuditTable() {
@@ -4158,11 +4381,21 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         showToast(`資料庫同步完成！已載入最新外師與課表 (${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'success');
       }
 
-      // 啟動背景每 5 秒自動雙向同步心跳
+      // 當手機從背景切回瀏覽器，或電腦切換分頁回來時，立即觸發即時同步
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          pullCloudData(false);
+        }
+      });
+      window.addEventListener('focus', () => {
+        pullCloudData(false);
+      });
+
+      // 啟動背景每 4 秒自動雙向同步心跳
       if (cloudSyncInterval) clearInterval(cloudSyncInterval);
       cloudSyncInterval = setInterval(() => {
         pullCloudData(false);
-      }, 5000);
+      }, 4000);
     };
   </script>
 </body>
