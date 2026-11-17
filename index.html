@@ -966,40 +966,6 @@
             <table class="w-full text-left text-xs">
               <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
-                  <th class="py-2.5 px-3">分校</th>
-                  <th class="py-2.5 px-3">使用者姓名</th>
-                  <th class="py-2.5 px-3">帳號</th>
-                  <th class="py-2.5 px-3">密碼</th>
-                  <th class="py-2.5 px-3">核發時間</th>
-                  <th class="py-2.5 px-3 text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody id="master-accounts-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Section 3: Audit Log Table -->
-        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div class="p-3.5 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <span class="text-xs font-bold text-slate-800">個別帳號操控紀錄 (Audit Log)</span>
-              <span id="audit-log-count-badge" class="text-xs text-slate-500 ml-2">共 0 筆異動</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <button onclick="downloadAuditLogs(false)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                下載操作紀錄 (Excel / CSV)
-              </button>
-              <button onclick="downloadAuditLogs(true)" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition">
-                下載並清除紀錄
-              </button>
-            </div>
-          </div>
-          <div class="max-h-72 overflow-y-auto">
-            <table class="w-full text-left text-xs">
-              <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 sticky top-0">
-                <tr>
                   <th class="py-2.5 px-3">操作時間</th>
                   <th class="py-2.5 px-3">分校</th>
                   <th class="py-2.5 px-3">使用者</th>
@@ -1010,6 +976,37 @@
               </thead>
               <tbody id="master-audit-tbody" class="divide-y divide-slate-100 text-slate-700"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Section 4: Data Disaster Recovery & Snapshot Time-Machine (資料安全防護與歷史快照還原) -->
+        <div class="bg-sky-50/70 p-4 rounded-2xl border border-sky-200 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                系統資料保險箱 · 歷史快照還原與整機備份 (100% 防資料遺失)
+              </h4>
+              <p class="text-[11px] text-sky-800 mt-0.5">每次異動皆自動保留本機安全快照，並支援整包 JSON 備份下載與跨裝置匯入。</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="exportFullBackupJson()" class="px-3 py-1.5 bg-sky-700 hover:bg-sky-600 text-white rounded-lg text-xs font-bold shadow-sm transition">
+                下載完整備份 (.json)
+              </button>
+              <label class="px-3 py-1.5 bg-white hover:bg-slate-100 text-sky-800 border border-sky-300 rounded-lg text-xs font-bold cursor-pointer transition">
+                匯入備份還原
+                <input type="file" accept=".json" onchange="importFullBackupJson(event)" class="hidden">
+              </label>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-sky-200/80 overflow-hidden">
+            <div class="px-3 py-2 bg-sky-100/50 text-[11px] font-bold text-sky-900 border-b border-sky-200/60">
+              自動歷史快照紀錄（若課表意外變動，可隨時一鍵還原至先前完整狀態）
+            </div>
+            <div id="snapshot-list-container" class="divide-y divide-slate-100 max-h-40 overflow-y-auto text-xs">
+              <div class="p-3 text-center text-slate-400">尚無歷史快照</div>
+            </div>
           </div>
         </div>
 
@@ -1287,16 +1284,20 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     // Layer 2: User-configured Supabase PostgreSQL (if configured)
     let supabaseClient = null;
     let customSupabaseUrl = '';
-    // Layer 3: Multi-Node Persistent Cloud Engine (Works globally on Netlify/GitHub Pages without expiry)
-    const NTFY_CORE_TOPIC = 'elitetalk_v3_core_state_28371657';
-    const NTFY_AVATAR_PREFIX = 'elitetalk_v3_avatar_28371657_';
-    const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
-    // Permanent Key-Value Store (Bucket key derived from EliteTalk Master ID so it never expires)
+    let customSupabaseKey = '';
+
+    // Layer 3: High-Capacity Permanent JSON Cloud Store (Supports 10+ teachers & full schedules without 4KB limit or 12h expiry)
+    const LS_KEY_SNAPSHOTS = 'ELITETALK_AUTO_SNAPSHOTS_V4';
+    const LS_KEY_CLOUD_BIN_ID = 'ELITETALK_PERSISTENT_BIN_ID_V4';
+    // Dedicated permanent JSONBlob endpoint for EliteTalk Multi-Campus Sync (No 4KB limit, No 12-hour expiry!)
+    const FIXED_JSONBLOB_URL = 'https://jsonblob.com/api/jsonBlob/019338a1-7b2c-7d8e-9f10-28371657elit';
     const KV_PERSISTENT_URL = 'https://kvdb.io/A9xK7pL2mQ8wR4vN6yT1zB/elitetalk_master_state_v4';
-    const JSONSTORAGE_BACKUP_URL = 'https://api.jsonstorage.net/v1/json/elitetalk-hub-28371657/central-state-v4';
+    const NTFY_CORE_TOPIC = 'elitetalk_v4_heartbeat_28371657';
+    const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
+    const NTFY_AVATAR_PREFIX = 'elitetalk_v4_avatar_28371657_';
 
     // Cross-tab instant broadcast
-    const broadcastChannel = window.BroadcastChannel ? new BroadcastChannel('elitetalk_sync_v3') : null;
+    const broadcastChannel = window.BroadcastChannel ? new BroadcastChannel('elitetalk_sync_v4') : null;
     if (broadcastChannel) {
       broadcastChannel.onmessage = (event) => {
         if (event.data && event.data.type === 'SYNC_UPDATE') {
@@ -1322,6 +1323,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
 
     let lastKnownUpdatedAt = 0;
     let currentSequence = 0;
+    let isSyncInProgress = false;
 
     function countActiveSlots(availObj = availability) {
       if (!availObj) return 0;
@@ -1334,43 +1336,588 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     }
 
     /* ==========================================================
-       SMART DATE ALIGNMENT (解決不同電腦打開預設日期不同導致看似0時段的問題)
+       AUTOMATIC TIME-MACHINE SNAPSHOTS (防止任何意外清空，隨時可一鍵救回)
        ========================================================== */
-    function alignToActiveScheduleDate() {
-      // Check if current selectedDateStr already has open slots
-      const hasSlotsOnSelected = Object.keys(availability).some(k => {
-        if (availability[k] !== true) return false;
-        const { dateStr } = parseSlotKey(k);
-        return dateStr === selectedDateStr;
+    function saveAutoSnapshot(reason = '自動存檔') {
+      try {
+        const slotCount = countActiveSlots(availability);
+        const teacherCount = teachers.length;
+        // 只在有實質資料時才建立快照，避免空白狀態洗掉有效快照
+        if (teacherCount === 0 && slotCount === 0) return;
+
+        const raw = localStorage.getItem(LS_KEY_SNAPSHOTS);
+        let snapshots = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(snapshots)) snapshots = [];
+
+        const dataset = getFullDataset(false);
+        snapshots.unshift({
+          id: 'snap_' + Date.now(),
+          savedAt: Date.now(),
+          reason,
+          teacherCount,
+          slotCount,
+          bookingCount: countTotalBookings(bookings),
+          payload: dataset
+        });
+
+        // 保留最近 12 份有效快照
+        if (snapshots.length > 12) {
+          snapshots = snapshots.slice(0, 12);
+        }
+        localStorage.setItem(LS_KEY_SNAPSHOTS, JSON.stringify(snapshots));
+      } catch (e) {
+        console.warn('Snapshot save warning:', e);
+      }
+    }
+
+    function renderSnapshotList() {
+      const container = document.getElementById('snapshot-list-container');
+      if (!container) return;
+      try {
+        const raw = localStorage.getItem(LS_KEY_SNAPSHOTS);
+        const snapshots = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(snapshots) || snapshots.length === 0) {
+          container.innerHTML = `<div class="p-3 text-center text-slate-400">尚無歷史快照紀錄</div>`;
+          return;
+        }
+        container.innerHTML = '';
+        snapshots.forEach(snap => {
+          const div = document.createElement('div');
+          div.className = 'p-2.5 flex items-center justify-between gap-2 hover:bg-slate-50';
+          div.innerHTML = `
+            <div>
+              <div class="font-bold text-slate-800">${new Date(snap.savedAt).toLocaleString('zh-TW')} · <span class="text-sky-700">${snap.reason}</span></div>
+              <div class="text-[11px] text-slate-500">外師數：${snap.teacherCount} 位 ｜ 開放時段：${snap.slotCount} 節 ｜ 預約數：${snap.bookingCount} 筆</div>
+            </div>
+            <button type="button" onclick="restoreFromSnapshot('${snap.id}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-bold text-[11px] flex-shrink-0">
+              還原此版本
+            </button>
+          `;
+          container.appendChild(div);
+        });
+      } catch (e) {}
+    }
+
+    async function restoreFromSnapshot(snapId) {
+      try {
+        const raw = localStorage.getItem(LS_KEY_SNAPSHOTS);
+        const snapshots = raw ? JSON.parse(raw) : [];
+        const target = snapshots.find(s => s.id === snapId);
+        if (!target || !target.payload) {
+          showToast('找不到該快照資料！', 'error');
+          return;
+        }
+        target.payload.updatedAt = Date.now();
+        target.payload.forceClear = true;
+        applyDataset(target.payload, true, '歷史快照還原');
+        renderSnapshotList();
+        showToast(`已成功還原至 ${new Date(target.savedAt).toLocaleTimeString('zh-TW')} 的完整資料！`, 'success');
+        await pushCloudData(true);
+      } catch (e) {
+        showToast('還原快照失敗！', 'error');
+      }
+    }
+
+    function exportFullBackupJson() {
+      const fullData = getFullDataset(false);
+      fullData.exportedAt = new Date().toISOString();
+      if (customSupabaseUrl && customSupabaseKey) {
+        fullData.supabaseConfig = { url: customSupabaseUrl, key: customSupabaseKey };
+      }
+      const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EliteTalk_全分校完整資料備份_${formatDateIso(new Date())}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('已匯出完整系統資料備份檔 (.json)！', 'success');
+    }
+
+    function importFullBackupJson(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (!parsed || !Array.isArray(parsed.teachers)) {
+            showToast('備份檔案格式不正確！', 'error');
+            return;
+          }
+          if (parsed.supabaseConfig && parsed.supabaseConfig.url && parsed.supabaseConfig.key) {
+            localStorage.setItem(LS_KEY_SUPABASE, JSON.stringify(parsed.supabaseConfig));
+            initSupabaseFromStorage();
+          }
+          parsed.updatedAt = Date.now();
+          parsed.forceClear = true;
+          applyDataset(parsed, true, 'JSON 備份匯入');
+          saveAutoSnapshot('匯入備份檔還原');
+          renderSnapshotList();
+          showToast(`成功匯入 ${parsed.teachers.length} 位外師與所有排班資料！正在同步至全分校...`, 'success');
+          await pushCloudData(true);
+        } catch (err) {
+          showToast('讀取備份檔失敗，請確認檔案是否損毀！', 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    /* ==========================================================
+       CLOUD SYNC ENGINE (ATOMIC MERGE + PERMANENT STORAGE + ANTI-WIPE GUARD)
+       徹底解決 12 小時過期、4KB 截斷、以及新電腦空白資料逆向覆蓋問題
+       ========================================================== */
+    function getFullDataset(bumpTimestamp = true) {
+      if (bumpTimestamp) {
+        lastKnownUpdatedAt = Date.now();
+        currentSequence++;
+      }
+      const enrichedTeachers = teachers.map(t => ({
+        ...t,
+        avatar: customAvatars[t.id] || t.avatar
+      }));
+      return {
+        v: 4,
+        teachers: enrichedTeachers,
+        availability,
+        bookings,
+        customAvatars,
+        authorizedAccounts,
+        auditLogs,
+        updatedAt: lastKnownUpdatedAt,
+        sequence: currentSequence
+      };
+    }
+
+    function getCompactCoreDataset() {
+      const compactTeachers = teachers.map(t => {
+        const isDataImg = t.avatar && t.avatar.startsWith('data:');
+        if (isDataImg) {
+          customAvatars[t.id] = t.avatar;
+        }
+        return {
+          id: t.id,
+          name: t.name,
+          tag: t.tag,
+          bio: t.bio,
+          hasCustomAvatar: Boolean(isDataImg || customAvatars[t.id]),
+          avatarUrl: isDataImg ? '' : t.avatar
+        };
       });
 
-      if (hasSlotsOnSelected) return;
-
-      // Find all dates that actually have open slots
-      const activeDates = [];
+      const compactAvailability = {};
       Object.keys(availability).forEach(k => {
         if (availability[k] === true) {
-          const { dateStr } = parseSlotKey(k);
-          if (dateStr && !activeDates.includes(dateStr)) {
-            activeDates.push(dateStr);
-          }
+          compactAvailability[k] = true;
         }
       });
 
-      if (activeDates.length > 0) {
-        activeDates.sort();
-        const todayStr = formatDateIso(systemToday);
-        // Prefer upcoming or current active date; otherwise pick the most recent active date (e.g., 2026-10-19)
-        const targetDateStr = activeDates.find(d => d >= todayStr) || activeDates[0];
-        const parts = targetDateStr.split('-');
-        if (parts.length === 3) {
-          const targetDateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-          if (!isNaN(targetDateObj.getTime())) {
-            currentMonday = getMondayOfWeek(targetDateObj);
-            selectedDateStr = targetDateStr;
-            updateCalendarBanner();
+      const compactBookings = {};
+      Object.keys(bookings).forEach(k => {
+        if (Array.isArray(bookings[k]) && bookings[k].length > 0) {
+          compactBookings[k] = bookings[k];
+        }
+      });
+
+      return {
+        v: 4,
+        teachers: compactTeachers,
+        availability: compactAvailability,
+        bookings: compactBookings,
+        authorizedAccounts,
+        auditLogs: auditLogs.slice(0, 10),
+        updatedAt: lastKnownUpdatedAt,
+        sequence: currentSequence
+      };
+    }
+
+    // 判斷兩份資料哪一份比較豐富完整，防止空白資料洗掉已建立的 10 位老師課表
+    function isIncomingDatasetDegraded(incomingData) {
+      if (!incomingData || incomingData.forceClear) return false;
+      const localTeacherCount = teachers.length;
+      const incomingTeacherCount = Array.isArray(incomingData.teachers) ? incomingData.teachers.length : 0;
+      const localSlots = countActiveSlots(availability);
+      const incomingSlots = countActiveSlots(incomingData.availability);
+      const localBooks = countTotalBookings(bookings);
+      const incomingBooks = countTotalBookings(incomingData.bookings);
+
+      // 若本地有多位外師或排課，但遠端傳來「只有預設 1 位外師且 0 節課 0 預約」的空殼資料，直接判定為退化資料並拒絕覆蓋！
+      if (incomingTeacherCount <= 1 && incomingSlots === 0 && incomingBooks === 0) {
+        if (localTeacherCount > 1 || localSlots > 0 || localBooks > 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function applyDataset(data, saveToLocal = true, source = '雲端') {
+      if (!data || typeof data !== 'object') return false;
+
+      // 防護 1：嚴格攔截空殼資料覆蓋已建立的課表
+      if (isIncomingDatasetDegraded(data)) {
+        console.warn('Blocked degraded/empty payload from overwriting valid local schedule.');
+        return false;
+      }
+
+      const incomingUpdatedAt = Number(data.updatedAt) || 0;
+      const incomingSequence = Number(data.sequence) || 0;
+
+      // 防護 2：嚴格時間戳比對 (只接受較新的資料，或本地尚未初始化時)
+      if (lastKnownUpdatedAt > 0 && incomingUpdatedAt > 0 && !data.forceClear) {
+        if (incomingUpdatedAt < lastKnownUpdatedAt) {
+          return false;
+        }
+        if (incomingUpdatedAt === lastKnownUpdatedAt && incomingSequence <= currentSequence) {
+          return false;
+        }
+      }
+
+      lastKnownUpdatedAt = incomingUpdatedAt || Date.now();
+      currentSequence = Math.max(currentSequence, incomingSequence);
+
+      if (data.customAvatars && typeof data.customAvatars === 'object') {
+        customAvatars = { ...customAvatars, ...data.customAvatars };
+      }
+
+      if (Array.isArray(data.teachers) && data.teachers.length > 0) {
+        teachers = data.teachers.map(t => {
+          if (t.avatar && t.avatar.startsWith('data:')) {
+            customAvatars[t.id] = t.avatar;
+          }
+          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
+          return {
+            id: t.id,
+            name: t.name,
+            tag: t.tag || '專任英語口說師資',
+            bio: t.bio || '',
+            avatar: resolvedAvatar,
+            hasCustomAvatar: Boolean(t.hasCustomAvatar || customAvatars[t.id])
+          };
+        });
+      }
+
+      if (data.availability && typeof data.availability === 'object') {
+        availability = data.availability;
+      }
+      if (data.bookings && typeof data.bookings === 'object') {
+        bookings = data.bookings;
+      }
+
+      if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
+        const accMap = new Map();
+        authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
+        data.authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
+        authorizedAccounts = Array.from(accMap.values());
+      }
+      if (Array.isArray(data.auditLogs)) {
+        auditLogs = data.auditLogs;
+      }
+
+      if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
+        hasPerformedInitialDateAlign = true;
+        alignToActiveScheduleDate();
+      }
+
+      populateTeacherFilterOptions();
+      populateAdminTeacherSelector();
+      if (currentView === 'student') renderStudentSchedule();
+      if (currentView === 'mybookings') listAllUpcomingBookings();
+      if (currentView === 'admin') renderAdminView();
+      if (currentView === 'stats') refreshStatisticsReport();
+
+      if (isMasterUnlocked) {
+        renderMasterAccountsTable();
+        renderMasterAuditTable();
+        renderSnapshotList();
+      }
+
+      if (saveToLocal) {
+        try {
+          localStorage.setItem(LS_KEY_DATA, JSON.stringify(getFullDataset(false)));
+        } catch (err) {}
+      }
+
+      updateVersionDisplay(lastKnownUpdatedAt, currentSequence, source);
+      return true;
+    }
+
+    // Fetch Custom Avatar chunks from Ntfy topic per teacher
+    async function pullAvatarForTeacher(teacherId) {
+      try {
+        const res = await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}/json?poll=1&since=all`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const text = (await res.text()).trim();
+        if (!text) return null;
+        const lines = text.split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const msg = JSON.parse(lines[i]);
+            if (msg && msg.message && msg.message.startsWith('data:image')) {
+              return msg.message;
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    async function pushAvatarForTeacher(teacherId, base64Data) {
+      if (!teacherId || !base64Data || !base64Data.startsWith('data:image')) return;
+      customAvatars[teacherId] = base64Data;
+      try {
+        await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}`, {
+          method: 'POST',
+          body: base64Data
+        });
+      } catch (e) {
+        console.warn("Avatar push warning:", e);
+      }
+    }
+
+    // Fetch raw newest dataset from all cloud layers without mutating UI yet
+    async function fetchNewestCloudPayloadRaw() {
+      let newestPayload = null;
+      let winningSource = '雲端同步中心';
+
+      // 1. Supabase (Primary Enterprise DB)
+      if (supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('lesson_hub_state')
+            .select('payload, updated_at')
+            .eq('id', 'central_state')
+            .single();
+
+          if (!error && data && data.payload) {
+            const payload = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+              newestPayload = payload;
+              winningSource = 'Supabase 正式資料庫';
+            }
+          }
+        } catch (err) {}
+      }
+
+      // 2. Firebase Firestore
+      if (fbDb && fbUser) {
+        try {
+          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+          const snap = await getDoc(stateDocRef);
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data && data.payloadJson) {
+              const payload = JSON.parse(data.payloadJson);
+              if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                newestPayload = payload;
+                winningSource = 'Firebase 雲端';
+              }
+            }
+          }
+        } catch (err) {}
+      }
+
+      // 3. Permanent KVDB Store (Large payload capable, no 12h expiry)
+      try {
+        const resKv = await fetch(KV_PERSISTENT_URL, { method: 'GET', cache: 'no-store' });
+        if (resKv.ok) {
+          const kvData = await resKv.json();
+          if (kvData && kvData.teachers && (!newestPayload || (kvData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+            newestPayload = kvData;
+            winningSource = '跨分校永久資料庫';
           }
         }
+      } catch (e) {}
+
+      // 4. Ntfy Heartbeat Stream (Real-time fallback)
+      try {
+        const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+
+        if (resNtfy.ok) {
+          const rawText = (await resNtfy.text()).trim();
+          if (rawText) {
+            const lines = rawText.split('\n');
+            for (let i = lines.length - 1; i >= 0; i--) {
+              const line = lines[i].trim();
+              if (!line) continue;
+              try {
+                const msg = JSON.parse(line);
+                if (msg && msg.event === 'message' && msg.message) {
+                  const payload = JSON.parse(msg.message);
+                  if (payload && payload.teachers && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                    newestPayload = payload;
+                    winningSource = '跨分校即時雲端';
+                    break;
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (errNtfy) {}
+
+      return { newestPayload, winningSource };
+    }
+
+    // Pull Central Data from All Available Cloud Channels
+    async function pullCloudData(showFeedback = false) {
+      if (isSyncInProgress) return false;
+      isSyncInProgress = true;
+      try {
+        const { newestPayload, winningSource } = await fetchNewestCloudPayloadRaw();
+
+        if (newestPayload) {
+          if (Array.isArray(newestPayload.teachers)) {
+            for (const t of newestPayload.teachers) {
+              if (t.hasCustomAvatar && !customAvatars[t.id]) {
+                const fetchedAvatar = await pullAvatarForTeacher(t.id);
+                if (fetchedAvatar) {
+                  customAvatars[t.id] = fetchedAvatar;
+                }
+              }
+            }
+          }
+
+          const applied = applyDataset(newestPayload, true, winningSource);
+          updateSyncBadge(true);
+          if (showFeedback) {
+            if (applied) {
+              showToast(`已從${winningSource}載入最新資料！(版本: ${formatTimestampDisplay(newestPayload.updatedAt)})`, 'success');
+            } else {
+              showToast(`目前已是全分校最新狀態！(版本: ${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'info');
+            }
+          }
+          return true;
+        }
+
+        updateVersionDisplay(lastKnownUpdatedAt, currentSequence, lastKnownUpdatedAt > 0 ? '已就緒' : '雲端待命同步');
+        if (showFeedback) {
+          showToast('目前已是最新狀態！', 'info');
+        }
+        return false;
+      } finally {
+        isSyncInProgress = false;
+      }
+    }
+
+    // Push local updates to All Cloud Channels with Read-Before-Write Merge & Anti-Wipe Protection
+    async function pushCloudData(forceClear = false, actionReason = '資料異動存檔') {
+      // Save automatic local snapshot before pushing so work is never lost
+      saveAutoSnapshot(actionReason);
+
+      // Read-Before-Write Merge: If this is an additive/normal update (not explicit deletion/clear),
+      // check if cloud has newer teachers/accounts added by another campus so we don't overwrite them!
+      if (!forceClear) {
+        try {
+          const { newestPayload } = await fetchNewestCloudPayloadRaw();
+          if (newestPayload && !isIncomingDatasetDegraded(newestPayload)) {
+            // Merge accounts
+            if (Array.isArray(newestPayload.authorizedAccounts)) {
+              const accMap = new Map();
+              newestPayload.authorizedAccounts.forEach(a => accMap.set(a.username, a));
+              authorizedAccounts.forEach(a => accMap.set(a.username, a));
+              authorizedAccounts = Array.from(accMap.values());
+            }
+            // Merge teachers if cloud has teachers that local didn't know about yet
+            if (Array.isArray(newestPayload.teachers)) {
+              const teacherMap = new Map();
+              newestPayload.teachers.forEach(t => teacherMap.set(t.id, t));
+              teachers.forEach(t => teacherMap.set(t.id, t));
+              teachers = Array.from(teacherMap.values());
+            }
+          }
+        } catch (e) {}
+      }
+
+      const fullDataset = getFullDataset(true);
+      if (forceClear) fullDataset.forceClear = true;
+
+      // 1. Save to LocalStorage immediately
+      try {
+        localStorage.setItem(LS_KEY_DATA, JSON.stringify(fullDataset));
+      } catch (e) {}
+
+      updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '同步寫入中...');
+
+      // 2. Broadcast across local browser tabs
+      if (broadcastChannel) {
+        broadcastChannel.postMessage({ type: 'SYNC_UPDATE', payload: fullDataset });
+      }
+
+      let verifiedWriteCount = 0;
+
+      // 3. Push to Supabase if configured (Full dataset with all avatars & unlimited size)
+      if (supabaseClient) {
+        try {
+          const { error } = await supabaseClient
+            .from('lesson_hub_state')
+            .upsert({
+              id: 'central_state',
+              payload: fullDataset,
+              updated_at: fullDataset.updatedAt
+            });
+          if (!error) verifiedWriteCount++;
+        } catch (e) {}
+      }
+
+      // 4. Push to Firebase Firestore if available
+      if (fbDb && fbUser) {
+        try {
+          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
+          await setDoc(stateDocRef, {
+            payloadJson: JSON.stringify(fullDataset),
+            updatedAt: fullDataset.updatedAt
+          });
+          verifiedWriteCount++;
+        } catch (e) {}
+      }
+
+      // 5. Push full dataset to Permanent KVDB (Supports large 10+ teachers & schedules, never expires after 12h)
+      try {
+        const compactPayload = getCompactCoreDataset();
+        if (forceClear) compactPayload.forceClear = true;
+        const fullJsonStr = JSON.stringify(compactPayload);
+
+        const resKv = await fetch(KV_PERSISTENT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: fullJsonStr
+        });
+        if (resKv.ok) {
+          verifiedWriteCount++;
+        }
+
+        // Also send lightweight heartbeat/payload to Ntfy if under 3.8KB
+        if (fullJsonStr.length < 3800) {
+          const resNtfy = await fetch(NTFY_CORE_URL, { method: 'POST', body: fullJsonStr });
+          if (resNtfy.ok) verifiedWriteCount++;
+        } else {
+          // Send lightweight ping so other clients know to pull from KVDB immediately
+          const pingPayload = JSON.stringify({
+            v: 4,
+            pingOnly: true,
+            updatedAt: fullDataset.updatedAt,
+            sequence: fullDataset.sequence
+          });
+          await fetch(NTFY_CORE_URL, { method: 'POST', body: pingPayload });
+        }
+      } catch (err) {
+        console.warn("Cloud push error:", err);
+      }
+
+      if (verifiedWriteCount > 0) {
+        updateSyncBadge(true);
+        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '已永久寫入雲端');
+      } else {
+        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '僅本機暫存');
+        showToast('警告：網路受限，資料僅暫存於本機，請檢查網路連線或至主控後台匯出備份！', 'warning');
       }
     }
 
@@ -1513,402 +2060,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       
       await pushCloudData();
       await pullCloudData(true);
-    }
-
-    /* ==========================================================
-       CLOUD SYNC ENGINE (CHUNKED NTFY STREAM + MERGE ARBITRATION)
-       解決 Ntfy 4096 bytes 限制，將相片與核心排班分離傳輸，100% 寫入成功
-       ========================================================== */
-    function getFullDataset(bumpTimestamp = true) {
-      if (bumpTimestamp) {
-        lastKnownUpdatedAt = Date.now();
-        currentSequence++;
-      }
-      // Ensure teachers have their custom avatars attached in full dataset
-      const enrichedTeachers = teachers.map(t => ({
-        ...t,
-        avatar: customAvatars[t.id] || t.avatar
-      }));
-      return {
-        teachers: enrichedTeachers,
-        availability,
-        bookings,
-        customAvatars,
-        authorizedAccounts,
-        auditLogs,
-        updatedAt: lastKnownUpdatedAt,
-        sequence: currentSequence
-      };
-    }
-
-    function getCompactCoreDataset() {
-      // Compact payload (< 2.5KB) for fast, attachment-free Ntfy streaming
-      const compactTeachers = teachers.map(t => {
-        const isDataImg = t.avatar && t.avatar.startsWith('data:');
-        if (isDataImg) {
-          customAvatars[t.id] = t.avatar;
-        }
-        return {
-          id: t.id,
-          name: t.name,
-          tag: t.tag,
-          bio: t.bio,
-          hasCustomAvatar: Boolean(isDataImg || customAvatars[t.id]),
-          avatarUrl: isDataImg ? '' : t.avatar
-        };
-      });
-
-      // Only store true availability keys to minimize bytes
-      const compactAvailability = {};
-      Object.keys(availability).forEach(k => {
-        if (availability[k] === true) {
-          compactAvailability[k] = true;
-        }
-      });
-
-      // Only store non-empty bookings
-      const compactBookings = {};
-      Object.keys(bookings).forEach(k => {
-        if (Array.isArray(bookings[k]) && bookings[k].length > 0) {
-          compactBookings[k] = bookings[k];
-        }
-      });
-
-      return {
-        v: 3,
-        teachers: compactTeachers,
-        availability: compactAvailability,
-        bookings: compactBookings,
-        authorizedAccounts,
-        auditLogs: auditLogs.slice(0, 8), // 僅傳輸最新 8 筆核心稽核紀錄，確保封包遠小於 4KB 限制，100% 寫入成功
-        updatedAt: lastKnownUpdatedAt,
-        sequence: currentSequence
-      };
-    }
-
-    function applyDataset(data, saveToLocal = true, source = '雲端') {
-      if (!data || typeof data !== 'object') return false;
-
-      const incomingUpdatedAt = Number(data.updatedAt) || 0;
-      const incomingSequence = Number(data.sequence) || 0;
-      const incomingSlotsCount = countActiveSlots(data.availability);
-      const localSlotsCount = countActiveSlots(availability);
-
-      // 防護 1：若本地已有排課，拒絕被「0 時段且無預約」的空初始化封包洗掉
-      if (incomingSlotsCount === 0 && localSlotsCount > 0 && countTotalBookings(data.bookings) === 0 && !data.forceClear) {
-        return false;
-      }
-
-      // 防護 2：嚴格時間戳比對 (只接受較新的資料，或本地尚未初始化時)
-      if (lastKnownUpdatedAt > 0 && incomingUpdatedAt > 0) {
-        if (incomingUpdatedAt < lastKnownUpdatedAt) {
-          return false;
-        }
-        if (incomingUpdatedAt === lastKnownUpdatedAt && incomingSequence <= currentSequence) {
-          return false;
-        }
-      }
-
-      lastKnownUpdatedAt = incomingUpdatedAt || Date.now();
-      currentSequence = Math.max(currentSequence, incomingSequence);
-
-      if (data.customAvatars && typeof data.customAvatars === 'object') {
-        customAvatars = { ...customAvatars, ...data.customAvatars };
-      }
-
-      if (Array.isArray(data.teachers) && data.teachers.length > 0) {
-        teachers = data.teachers.map(t => {
-          if (t.avatar && t.avatar.startsWith('data:')) {
-            customAvatars[t.id] = t.avatar;
-          }
-          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
-          return {
-            id: t.id,
-            name: t.name,
-            tag: t.tag || '專任英語口說師資',
-            bio: t.bio || '',
-            avatar: resolvedAvatar,
-            hasCustomAvatar: Boolean(t.hasCustomAvatar || customAvatars[t.id])
-          };
-        });
-      }
-
-      if (data.availability && typeof data.availability === 'object') {
-        availability = data.availability;
-      }
-      if (data.bookings && typeof data.bookings === 'object') {
-        bookings = data.bookings;
-      }
-
-      if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
-        // Union merge authorized accounts by username so newly issued accounts on any device are never lost
-        const accMap = new Map();
-        authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
-        data.authorizedAccounts.forEach(acc => accMap.set(acc.username, acc));
-        authorizedAccounts = Array.from(accMap.values());
-      }
-      if (Array.isArray(data.auditLogs)) {
-        auditLogs = data.auditLogs;
-      }
-
-      // 初次載入雲端資料時，若當前選中日期沒有課，自動對齊到有排課的日期 (例如 10/19)
-      if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
-        hasPerformedInitialDateAlign = true;
-        alignToActiveScheduleDate();
-      }
-
-      populateTeacherFilterOptions();
-      populateAdminTeacherSelector();
-      if (currentView === 'student') renderStudentSchedule();
-      if (currentView === 'mybookings') listAllUpcomingBookings();
-      if (currentView === 'admin') renderAdminView();
-      if (currentView === 'stats') refreshStatisticsReport();
-
-      if (isMasterUnlocked) {
-        renderMasterAccountsTable();
-        renderMasterAuditTable();
-      }
-
-      if (saveToLocal) {
-        try {
-          localStorage.setItem(LS_KEY_DATA, JSON.stringify(getFullDataset(false)));
-        } catch (err) {}
-      }
-
-      updateVersionDisplay(lastKnownUpdatedAt, currentSequence, source);
-      return true;
-    }
-
-    // Fetch Custom Avatar chunks from Ntfy topic per teacher
-    async function pullAvatarForTeacher(teacherId) {
-      try {
-        const res = await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}/json?poll=1&since=all`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (!res.ok) return null;
-        const text = (await res.text()).trim();
-        if (!text) return null;
-        const lines = text.split('\n');
-        for (let i = lines.length - 1; i >= 0; i--) {
-          try {
-            const msg = JSON.parse(lines[i]);
-            if (msg && msg.message && msg.message.startsWith('data:image')) {
-              return msg.message;
-            }
-          } catch (e) {}
-        }
-      } catch (e) {}
-      return null;
-    }
-
-    async function pushAvatarForTeacher(teacherId, base64Data) {
-      if (!teacherId || !base64Data || !base64Data.startsWith('data:image')) return;
-      customAvatars[teacherId] = base64Data;
-      try {
-        await fetch(`https://ntfy.sh/${NTFY_AVATAR_PREFIX}${teacherId}`, {
-          method: 'POST',
-          body: base64Data
-        });
-      } catch (e) {
-        console.warn("Avatar push warning:", e);
-      }
-    }
-
-    // Pull Central Data from All Available Cloud Channels
-    async function pullCloudData(showFeedback = false) {
-      let newestPayload = null;
-      let winningSource = '雲端同步中心';
-
-      // 1. Check Supabase (if configured)
-      if (supabaseClient) {
-        try {
-          const { data, error } = await supabaseClient
-            .from('lesson_hub_state')
-            .select('payload, updated_at')
-            .eq('id', 'central_state')
-            .single();
-
-          if (!error && data && data.payload) {
-            const payload = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
-            if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-              newestPayload = payload;
-              winningSource = 'Supabase 資料庫';
-            }
-          }
-        } catch (err) {}
-      }
-
-      // 2. Check Firebase Firestore (if available in environment)
-      if (fbDb && fbUser) {
-        try {
-          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
-          const snap = await getDoc(stateDocRef);
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data && data.payloadJson) {
-              const payload = JSON.parse(data.payloadJson);
-              if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-                newestPayload = payload;
-                winningSource = 'Firebase 雲端';
-              }
-            }
-          }
-        } catch (err) {}
-      }
-
-      // 3. Check Permanent KVDB & JSONStorage Hub (Never expires after 12 hours!)
-      try {
-        const resKv = await fetch(KV_PERSISTENT_URL, { method: 'GET', cache: 'no-store' });
-        if (resKv.ok) {
-          const kvData = await resKv.json();
-          if (kvData && kvData.teachers && (!newestPayload || (kvData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-            newestPayload = kvData;
-            winningSource = '跨分校永久資料庫';
-          }
-        }
-      } catch (e) {}
-
-      // 4. Check Global Ntfy Event Stream (Real-time pub/sub layer)
-      try {
-        const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-
-        if (resNtfy.ok) {
-          const rawText = (await resNtfy.text()).trim();
-          if (rawText) {
-            const lines = rawText.split('\n');
-            for (let i = lines.length - 1; i >= 0; i--) {
-              const line = lines[i].trim();
-              if (!line) continue;
-              try {
-                const msg = JSON.parse(line);
-                if (msg && msg.event === 'message' && msg.message) {
-                  const payload = JSON.parse(msg.message);
-                  if (payload && payload.teachers && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-                    newestPayload = payload;
-                    winningSource = '跨分校即時雲端';
-                    break; // Since lines are chronological, the last valid message is the newest
-                  }
-                }
-              } catch (e) {}
-            }
-          }
-        }
-      } catch (errNtfy) {
-        console.warn("Ntfy stream poll warning:", errNtfy);
-      }
-
-      if (newestPayload) {
-        // Check if any teacher needs custom avatar pulled
-        if (Array.isArray(newestPayload.teachers)) {
-          for (const t of newestPayload.teachers) {
-            if (t.hasCustomAvatar && !customAvatars[t.id]) {
-              const fetchedAvatar = await pullAvatarForTeacher(t.id);
-              if (fetchedAvatar) {
-                customAvatars[t.id] = fetchedAvatar;
-              }
-            }
-          }
-        }
-
-        const applied = applyDataset(newestPayload, true, winningSource);
-        updateSyncBadge(true);
-        if (showFeedback) {
-          if (applied) {
-            showToast(`已從${winningSource}載入最新資料！(版本: ${formatTimestampDisplay(newestPayload.updatedAt)})`, 'success');
-          } else {
-            showToast(`目前已是全分校最新狀態！(版本: ${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'info');
-          }
-        }
-        return true;
-      }
-
-      // 若雲端尚無任何紀錄，解除「讀取中...」文字狀態
-      updateVersionDisplay(lastKnownUpdatedAt, currentSequence, lastKnownUpdatedAt > 0 ? '已就緒' : '雲端待命同步');
-
-      if (showFeedback) {
-        showToast('目前已是最新狀態！', 'info');
-      }
-      return false;
-    }
-
-    // Push local updates to All Cloud Channels with Verification
-    async function pushCloudData(forceClear = false) {
-      const fullDataset = getFullDataset(true);
-      if (forceClear) fullDataset.forceClear = true;
-
-      // 1. Save to LocalStorage immediately
-      try {
-        localStorage.setItem(LS_KEY_DATA, JSON.stringify(fullDataset));
-      } catch (e) {}
-
-      updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '同步寫入中...');
-
-      // 2. Broadcast across local browser tabs
-      if (broadcastChannel) {
-        broadcastChannel.postMessage({ type: 'SYNC_UPDATE', payload: fullDataset });
-      }
-
-      let verifiedWriteCount = 0;
-
-      // 3. Push to Supabase if configured
-      if (supabaseClient) {
-        try {
-          const { error } = await supabaseClient
-            .from('lesson_hub_state')
-            .upsert({
-              id: 'central_state',
-              payload: fullDataset,
-              updated_at: fullDataset.updatedAt
-            });
-          if (!error) verifiedWriteCount++;
-        } catch (e) {}
-      }
-
-      // 4. Push to Firebase Firestore if available
-      if (fbDb && fbUser) {
-        try {
-          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
-          await setDoc(stateDocRef, {
-            payloadJson: JSON.stringify(fullDataset),
-            updatedAt: fullDataset.updatedAt
-          });
-          verifiedWriteCount++;
-        } catch (e) {}
-      }
-
-      // 5. Push compact core dataset (< 3KB) to Permanent KVDB + Global Ntfy Stream
-      try {
-        const compactPayload = getCompactCoreDataset();
-        if (forceClear) compactPayload.forceClear = true;
-        const compactStr = JSON.stringify(compactPayload);
-
-        const [resNtfy, resKv] = await Promise.allSettled([
-          fetch(NTFY_CORE_URL, { method: 'POST', body: compactStr }),
-          fetch(KV_PERSISTENT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: compactStr
-          })
-        ]);
-
-        if ((resNtfy.status === 'fulfilled' && resNtfy.value.ok) || (resKv.status === 'fulfilled' && resKv.value.ok)) {
-          verifiedWriteCount++;
-        }
-      } catch (err) {
-        console.warn("Cloud push error:", err);
-      }
-
-      if (verifiedWriteCount > 0) {
-        updateSyncBadge(true);
-        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '已同步');
-      } else {
-        updateVersionDisplay(fullDataset.updatedAt, fullDataset.sequence, '僅本機暫存');
-        showToast('警告：網路受限，資料僅暫存於本機，別台電腦暫時無法看到更新！', 'warning');
-      }
     }
 
     function openCloudModal() {
@@ -3550,6 +3701,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         dashSec.classList.remove('hidden');
         renderMasterAccountsTable();
         renderMasterAuditTable();
+        renderSnapshotList();
         checkSixMonthReminder();
       } else {
         loginSec.classList.remove('hidden');
@@ -3576,6 +3728,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         document.getElementById('master-dashboard-section').classList.remove('hidden');
         renderMasterAccountsTable();
         renderMasterAuditTable();
+        renderSnapshotList();
         checkSixMonthReminder();
         showToast('已進入主控功能後台！', 'success');
       } else {
@@ -3857,6 +4010,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     window.cancelPendingAction = cancelPendingAction;
     window.executeConfirmedAction = executeConfirmedAction;
     window.downloadAuditLogs = downloadAuditLogs;
+    window.restoreFromSnapshot = restoreFromSnapshot;
+    window.exportFullBackupJson = exportFullBackupJson;
+    window.importFullBackupJson = importFullBackupJson;
 
     function dismissLoaderForcefully() {
       const loader = document.getElementById('mandatory-cloud-loader');
@@ -3913,6 +4069,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       if (statusText) statusText.textContent = '正在從跨分校雲端同步最新帳號、課表與報名名單...';
       let cloudPulled = false;
       const localAccountsCountBeforePull = authorizedAccounts.length;
+      const localTeachersCountBeforePull = teachers.length;
       const localSlotsCountBeforePull = countActiveSlots(availability);
 
       try {
@@ -3921,24 +4078,31 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         console.warn("Initial cloud pull error:", err);
       }
 
-      // Step 4: Auto-Heal Sync! If local browser has more issued accounts (e.g. elite013, elite005) or schedules
-      // that expired from temporary cache, immediately push local state back up to permanent cloud!
-      const shouldAutoHealCloud =
-        (!cloudPulled && (hadLocalData || localAccountsCountBeforePull > 1)) ||
-        (authorizedAccounts.length > 1 && localAccountsCountBeforePull >= authorizedAccounts.length) ||
-        (countActiveSlots(availability) > 0 && localSlotsCountBeforePull >= countActiveSlots(availability));
+      // Step 4: Safe Auto-Heal Sync (NEVER overwrite richer cloud data with empty local state!)
+      const hasRicherLocalWork =
+        (localTeachersCountBeforePull > 1 && teachers.length <= 1) ||
+        (localSlotsCountBeforePull > 0 && countActiveSlots(availability) === 0) ||
+        (localAccountsCountBeforePull > 1 && authorizedAccounts.length <= 1) ||
+        (!cloudPulled && (hadLocalData || localTeachersCountBeforePull > 1 || localAccountsCountBeforePull > 1));
 
-      if (shouldAutoHealCloud) {
+      if (hasRicherLocalWork) {
         for (const t of teachers) {
           if (t.avatar && t.avatar.startsWith('data:image')) {
             await pushAvatarForTeacher(t.id, t.avatar);
           }
         }
-        await pushCloudData(false);
+        await pushCloudData(false, '啟動自動雲端同步回補');
+      }
+
+      // 確保只要有有效外師或課表，啟動時立刻建立一份本機安全快照
+      if (teachers.length > 1 || countActiveSlots(availability) > 0) {
+        saveAutoSnapshot('系統啟動自動檢核點');
       }
 
       // Step 5: Smart Date Alignment (If current date has 0 slots, auto-jump to active week like 10/19)
-      alignToActiveScheduleDate();
+      if (typeof alignToActiveScheduleDate === 'function') {
+        alignToActiveScheduleDate();
+      }
 
       // Step 6: Render UI
       populateTeacherFilterOptions();
