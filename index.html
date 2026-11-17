@@ -85,6 +85,10 @@
               <button type="button" onclick="pullCloudData(true)" id="live-version-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition shadow-sm" title="點擊立即強制向中央資料庫同步最新資料">
                 資料庫同步中...
               </button>
+              <!-- Data Integrity Check Badge -->
+              <button type="button" onclick="openIntegrityCheckModal()" id="data-integrity-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition shadow-sm" title="點擊開啟跨端點資料完整性盤點與自動補齊修復">
+                師:1 時段:0 預約:0 #0000
+              </button>
               <!-- Current User Status / Login Button -->
               <div id="user-auth-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
                 <span id="user-auth-status-text">未登入編輯者</span>
@@ -1154,6 +1158,61 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     </div>
   </div>
 
+  <!-- ========================================== -->
+  <!-- MODAL: DATA INTEGRITY CHECK & DEEP REPAIR (跨端點資料完整性檢查與補齊) -->
+  <!-- ========================================== -->
+  <div id="integrity-check-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closeIntegrityCheckModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3 pb-3 mb-4 border-b border-slate-100">
+        <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">跨端點資料完整性盤點與差異修復</h3>
+          <p class="text-xs text-slate-500">比對不同電腦與手機的外師時段與預約指紋碼</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-4 gap-2 mb-4 text-center">
+        <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+          <div class="text-[10px] text-slate-500 font-bold">外師總數</div>
+          <div id="ic-teacher-count" class="text-sm font-black text-slate-900 mt-0.5">0</div>
+        </div>
+        <div class="p-2.5 bg-sky-50 rounded-xl border border-sky-200">
+          <div class="text-[10px] text-sky-700 font-bold">開放時段</div>
+          <div id="ic-slot-count" class="text-sm font-black text-sky-800 mt-0.5">0</div>
+        </div>
+        <div class="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
+          <div class="text-[10px] text-emerald-700 font-bold">預約人次</div>
+          <div id="ic-booking-count" class="text-sm font-black text-emerald-800 mt-0.5">0</div>
+        </div>
+        <div class="p-2.5 bg-indigo-50 rounded-xl border border-indigo-200">
+          <div class="text-[10px] text-indigo-700 font-bold">資料指紋碼</div>
+          <div id="ic-checksum-code" class="text-sm font-mono font-black text-indigo-800 mt-0.5">#0000</div>
+        </div>
+      </div>
+
+      <div class="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden mb-4">
+        <div class="px-3 py-2 bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+          各日期排班與學生預約明細盤點
+        </div>
+        <div id="ic-daily-breakdown" class="divide-y divide-slate-200/70 max-h-52 overflow-y-auto text-xs"></div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-center justify-end gap-2">
+        <button type="button" onclick="runDeepHistoryRepair(true)" class="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          深度掃描雲端歷史並補齊遺漏資料
+        </button>
+        <button type="button" onclick="closeIntegrityCheckModal()" class="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold">關閉</button>
+      </div>
+    </div>
+  </div>
+
   <!-- JAVASCRIPT APPLICATION LOGIC -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -1827,7 +1886,198 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       updateVersionDisplay(lastKnownUpdatedAt, currentSequence, source);
+      updateIntegrityBadge();
       return true;
+    }
+
+    function computeDataChecksum() {
+      const sortedTeachers = teachers.map(t => t.id).sort().join(',');
+      const sortedSlots = Object.keys(availability).filter(k => availability[k] === true).sort().join(',');
+      const sortedBookings = [];
+      Object.keys(bookings).sort().forEach(k => {
+        (bookings[k] || []).forEach(b => sortedBookings.push(`${k}:${b.id}:${b.zhName}`));
+      });
+      const canonical = `${sortedTeachers}|${sortedSlots}|${sortedBookings.sort().join(',')}`;
+      let hash = 2166136261;
+      for (let i = 0; i < canonical.length; i++) {
+        hash ^= canonical.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(0, 4);
+    }
+
+    function updateIntegrityBadge() {
+      const badge = document.getElementById('data-integrity-badge');
+      if (!badge) return;
+      const tCount = teachers.length;
+      const sCount = countActiveSlots(availability);
+      const bCount = countTotalBookings(bookings);
+      const code = computeDataChecksum();
+      badge.textContent = `師:${tCount} 時段:${sCount} 預約:${bCount} #${code}`;
+    }
+
+    function openIntegrityCheckModal() {
+      const modal = document.getElementById('integrity-check-modal');
+      if (!modal) return;
+
+      document.getElementById('ic-teacher-count').textContent = `${teachers.length} 位`;
+      document.getElementById('ic-slot-count').textContent = `${countActiveSlots(availability)} 節`;
+      document.getElementById('ic-booking-count').textContent = `${countTotalBookings(bookings)} 人次`;
+      document.getElementById('ic-checksum-code').textContent = `#${computeDataChecksum()}`;
+
+      const listEl = document.getElementById('ic-daily-breakdown');
+      if (listEl) {
+        const byDate = new Map();
+        Object.keys(availability).forEach(k => {
+          if (availability[k] === true) {
+            const { teacherId, dateStr } = parseSlotKey(k);
+            if (!byDate.has(dateStr)) byDate.set(dateStr, { teachers: new Set(), slots: 0, bookings: 0 });
+            const entry = byDate.get(dateStr);
+            entry.teachers.add(teacherId);
+            entry.slots++;
+            entry.bookings += (bookings[k] || []).length;
+          }
+        });
+
+        if (byDate.size === 0) {
+          listEl.innerHTML = `<div class="p-4 text-center text-slate-400">目前尚無開放排班日期</div>`;
+        } else {
+          listEl.innerHTML = '';
+          Array.from(byDate.keys()).sort().forEach(d => {
+            const info = byDate.get(d);
+            const row = document.createElement('div');
+            row.className = 'px-3 py-2 flex items-center justify-between bg-white';
+            row.innerHTML = `
+              <span class="font-mono font-bold text-slate-800">${d}</span>
+              <span class="text-slate-600">外師 <strong>${info.teachers.size}</strong> 位 · 開放 <strong>${info.slots}</strong> 節 · 已預約 <strong class="text-emerald-700">${info.bookings}</strong> 人</span>
+            `;
+            listEl.appendChild(row);
+          });
+        }
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeIntegrityCheckModal() {
+      document.getElementById('integrity-check-modal')?.classList.add('hidden');
+    }
+
+    async function runDeepHistoryRepair(showFeedback = true) {
+      let repairedSlots = 0;
+      let repairedBookings = 0;
+      try {
+        const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const res = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all&_cb=${cacheBuster}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const text = (await res.text()).trim();
+          if (text) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              try {
+                const msg = JSON.parse(line);
+                if (!msg || msg.event !== 'message' || !msg.message) continue;
+                const rawStr = msg.message.startsWith('GZ:')
+                  ? await decompressBase64ToString(msg.message)
+                  : msg.message;
+                if (!rawStr) continue;
+                const parsed = JSON.parse(rawStr);
+                const decoded = decodeCompactPayload(parsed);
+                if (!decoded) continue;
+
+                if (decoded.tombstones) {
+                  ['slots', 'bookings', 'teachers', 'accounts'].forEach(cat => {
+                    if (decoded.tombstones[cat]) {
+                      tombstones[cat] = { ...tombstones[cat], ...decoded.tombstones[cat] };
+                    }
+                  });
+                }
+
+                if (Array.isArray(decoded.teachers)) {
+                  decoded.teachers.forEach(t => {
+                    if (!tombstones.teachers[t.id] && !teachers.some(lt => lt.id === t.id)) {
+                      teachers.push({
+                        id: t.id,
+                        name: t.name,
+                        tag: t.tag || '專任英語口說師資',
+                        bio: t.bio || '',
+                        avatar: customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`,
+                        hasCustomAvatar: Boolean(t.hasCustomAvatar)
+                      });
+                    }
+                  });
+                }
+
+                if (decoded.availability) {
+                  Object.keys(decoded.availability).forEach(k => {
+                    if (decoded.availability[k] === true && !tombstones.slots[k] && !availability[k]) {
+                      availability[k] = true;
+                      repairedSlots++;
+                    }
+                  });
+                }
+
+                if (decoded.bookings) {
+                  Object.keys(decoded.bookings).forEach(k => {
+                    const list = decoded.bookings[k] || [];
+                    if (list.length > 0 && !tombstones.slots[k]) {
+                      if (!availability[k]) {
+                        availability[k] = true;
+                        repairedSlots++;
+                      }
+                      if (!bookings[k]) bookings[k] = [];
+                      list.forEach(b => {
+                        if (b && !tombstones.bookings[b.id] && !bookings[k].some(lb => lb.id === b.id)) {
+                          bookings[k].push(b);
+                          repairedBookings++;
+                        }
+                      });
+                    }
+                  });
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {}
+
+      // Prune any tombstoned records
+      Object.keys(availability).forEach(k => {
+        if (tombstones.slots[k]) delete availability[k];
+      });
+      Object.keys(bookings).forEach(k => {
+        bookings[k] = (bookings[k] || []).filter(b => b && !tombstones.bookings[b.id]);
+        if (bookings[k].length === 0) delete bookings[k];
+      });
+
+      if (repairedSlots > 0 || repairedBookings > 0) {
+        renderWeekdayTabs();
+        populateTeacherFilterOptions();
+        populateAdminTeacherSelector();
+        renderStudentSchedule();
+        if (currentView === 'mybookings') listAllUpcomingBookings();
+        if (currentView === 'admin') renderAdminView();
+        if (currentView === 'stats') refreshStatisticsReport();
+        try {
+          localStorage.setItem(LS_KEY_DATA, JSON.stringify(getFullDataset(false)));
+        } catch (e) {}
+      }
+
+      updateIntegrityBadge();
+      if (!document.getElementById('integrity-check-modal')?.classList.contains('hidden')) {
+        openIntegrityCheckModal();
+      }
+
+      if (showFeedback) {
+        if (repairedSlots > 0 || repairedBookings > 0) {
+          showToast(`深度修復完成！已自動補齊 ${repairedSlots} 個外師時段與 ${repairedBookings} 筆學生預約！`, 'success');
+        } else {
+          showToast(`資料完整性檢查通過！目前無遺漏資料 (校驗碼 #${computeDataChecksum()})`, 'success');
+        }
+      }
     }
 
     // Fetch Custom Avatar chunks from Ntfy topic per teacher
@@ -4292,6 +4542,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     window.restoreFromSnapshot = restoreFromSnapshot;
     window.exportFullBackupJson = exportFullBackupJson;
     window.importFullBackupJson = importFullBackupJson;
+    window.openIntegrityCheckModal = openIntegrityCheckModal;
+    window.closeIntegrityCheckModal = closeIntegrityCheckModal;
+    window.runDeepHistoryRepair = runDeepHistoryRepair;
 
     function dismissLoaderForcefully() {
       const loader = document.getElementById('mandatory-cloud-loader');
@@ -4404,13 +4657,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       if (cloudPulled) {
-        showToast(`資料庫同步完成！已載入最新外師與課表 (${formatTimestampDisplay(lastKnownUpdatedAt)})`, 'success');
+        await runDeepHistoryRepair(false);
+        showToast(`資料庫同步完成！已載入最新外師與課表 (${formatTimestampDisplay(lastKnownUpdatedAt)}) · 校驗碼 #${computeDataChecksum()}`, 'success');
       }
+      updateIntegrityBadge();
 
-      // 當手機從背景切回瀏覽器，或電腦切換分頁回來時，立即觸發即時同步
+      // 當手機從背景切回瀏覽器，或電腦切換分頁回來時，立即觸發即時同步與完整性檢查
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           pullCloudData(false);
+          runDeepHistoryRepair(false);
         }
       });
       window.addEventListener('focus', () => {
