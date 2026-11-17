@@ -1272,6 +1272,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
 
     let lastKnownUpdatedAt = 0;
     let currentSequence = 0;
+    let liveEventSource = null;
 
     let broadcastChannel = null;
     try {
@@ -1900,11 +1901,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         } catch (errFb) {}
       }
 
-      // 3. Ntfy Multi-Chunk Distributed Stream (Supports both single-packet & multi-chunk large payloads)
+      // 3. Ntfy Multi-Chunk Distributed Stream (With Anti-Cache & Retry Protection)
       try {
-        const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
+        const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all&_cb=${cacheBuster}`, {
           method: 'GET',
-          cache: 'no-store'
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
         });
 
         if (resNtfy.ok) {
@@ -1912,6 +1918,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           if (rawText) {
             const lines = rawText.split('\n');
             const chunkBatches = new Map(); // batchId -> { total, ts, parts: Map(idx -> str) }
+            let newestCompleteBatchTs = 0;
 
             for (let i = lines.length - 1; i >= 0; i--) {
               const line = lines[i].trim();
@@ -1925,12 +1932,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                 if (parsed && parsed.chunkBatch && typeof parsed.idx === 'number' && parsed.total) {
                   let batch = chunkBatches.get(parsed.chunkBatch);
                   if (!batch) {
-                    batch = { total: parsed.total, ts: parsed.ts || 0, parts: new Map() };
+                    batch = { total: parsed.total, ts: Number(parsed.ts) || 0, parts: new Map() };
                     chunkBatches.set(parsed.chunkBatch, batch);
                   }
                   batch.parts.set(parsed.idx, parsed.data);
 
-                  if (batch.parts.size === batch.total) {
+                  if (batch.parts.size === batch.total && batch.ts > newestCompleteBatchTs) {
                     let fullStr = '';
                     for (let p = 0; p < batch.total; p++) {
                       fullStr += batch.parts.get(p) || '';
@@ -1938,8 +1945,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                     const reassembled = decodeCompactPayload(JSON.parse(fullStr));
                     if (reassembled && (!newestPayload || (reassembled.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                       newestPayload = reassembled;
+                      newestCompleteBatchTs = batch.ts;
                       winningSource = '跨分校分散式雲端';
-                      break;
                     }
                   }
                   continue;
@@ -1950,7 +1957,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                 if (decoded && decoded.teachers && (!newestPayload || (decoded.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                   newestPayload = decoded;
                   winningSource = '跨分校即時雲端';
-                  break;
                 }
               } catch (e) {}
             }
@@ -2100,31 +2106,34 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       // 4. Push to Firebase if available
-      if (fbDb && fbUser) {
-        try {
-          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
-          await setDoc(stateDocRef, {
-            payloadJson: JSON.stringify(fullDataset),
-            updatedAt: fullDataset.updatedAt
-          });
-          verifiedWriteCount++;
-        } catch (err) {}
-      }
-
-      // 5. Push full compacted dataset to Ntfy Distributed Stream (Automatic Multi-Chunk Splitting, NEVER drops data!)
+      // 5. Push full compacted dataset to Ntfy Distributed Stream (Atomic Sequential Chunk Delivery with Retry)
       try {
         const compactObj = encodeCompactPayload(forceClear);
         const compactStr = JSON.stringify(compactObj);
-        const MAX_CHUNK_SIZE = 3400;
+        const MAX_CHUNK_SIZE = 3600;
+
+        const postWithRetry = async (bodyStr, maxRetries = 2) => {
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+              const res = await fetch(`${NTFY_CORE_URL}?_t=${Date.now()}`, {
+                method: 'POST',
+                cache: 'no-store',
+                body: bodyStr
+              });
+              if (res.ok) return true;
+            } catch (e) {}
+            if (attempt < maxRetries) {
+              await new Promise(r => setTimeout(r, 250 * (attempt + 1)));
+            }
+          }
+          return false;
+        };
 
         if (compactStr.length <= MAX_CHUNK_SIZE) {
-          const resNtfy = await fetch(NTFY_CORE_URL, {
-            method: 'POST',
-            body: compactStr
-          });
-          if (resNtfy.ok) verifiedWriteCount++;
+          const ok = await postWithRetry(compactStr);
+          if (ok) verifiedWriteCount++;
         } else {
-          // Split large payload into numbered sequential chunks so 100% of teachers & bookings arrive intact
+          // Split large payload into numbered sequential chunks with retry so 100% of parts arrive intact
           const totalChunks = Math.ceil(compactStr.length / MAX_CHUNK_SIZE);
           const batchId = 'b_' + fullDataset.updatedAt + '_' + Math.random().toString(36).substr(2, 4);
           let allChunksOk = true;
@@ -2138,11 +2147,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
               ts: fullDataset.updatedAt,
               data: sliceData
             });
-            const resChunk = await fetch(NTFY_CORE_URL, {
-              method: 'POST',
-              body: chunkPacket
-            });
-            if (!resChunk.ok) {
+            const ok = await postWithRetry(chunkPacket);
+            if (!ok) {
               allChunksOk = false;
               break;
             }
@@ -4391,11 +4397,22 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         pullCloudData(false);
       });
 
-      // 啟動背景每 4 秒自動雙向同步心跳
+      // 啟動即時推播長連線監聽 (SSE)，電腦端一寫入，手機端 1 秒內自動刷新
+      try {
+        if (typeof EventSource !== 'undefined') {
+          if (liveEventSource) liveEventSource.close();
+          liveEventSource = new EventSource(`${NTFY_CORE_URL}/sse?since=all`);
+          liveEventSource.onmessage = () => {
+            pullCloudData(false);
+          };
+        }
+      } catch (e) {}
+
+      // 啟動背景每 3 秒自動雙向同步心跳
       if (cloudSyncInterval) clearInterval(cloudSyncInterval);
       cloudSyncInterval = setInterval(() => {
         pullCloudData(false);
-      }, 4000);
+      }, 3000);
     };
   </script>
 </body>
