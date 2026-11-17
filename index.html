@@ -1207,7 +1207,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     function getMondayOfWeek(d) {
       const date = new Date(d);
       const day = date.getDay();
-      // If Sunday (0), go back 6 days to Monday of that week
       const diff = date.getDate() - day + (day === 0 ? -6 : 1);
       return new Date(date.setDate(diff));
     }
@@ -1248,12 +1247,43 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     let isCloudUnlocked = true;
     let cloudSyncInterval = null;
     let isImageProcessing = false;
+    let isSyncInProgress = false;
 
     const LS_KEY_DATA = 'ELITETALK_CENTRAL_CACHE_V3';
     const LS_KEY_AUTH = 'ELITETALK_AUTH_STATE_V3';
     const LS_KEY_SUPABASE = 'ELITETALK_SUPABASE_CFG_V3';
     const LS_KEY_LOGGED_USER = 'ELITETALK_LOGGED_USER_V3';
     const LS_KEY_LAST_AUDIT_CLEAR = 'ELITETALK_LAST_AUDIT_CLEAR_V3';
+
+    // Core Lesson Data State
+    let teachers = [
+      {
+        id: 't_elite01',
+        name: 'Teacher Elite01',
+        tag: '專任外籍英語口說師資',
+        avatar: 'https://placehold.co/150x150/0284c7/ffffff?text=E1',
+        bio: '精英國際教育專任外師，擅長青少年會話與發音指導。',
+        hasCustomAvatar: false
+      }
+    ];
+    let availability = {}; // { "teacherId_YYYY-MM-DD_HH:MM-HH:MM": true }
+    let bookings = {};     // { "teacherId_YYYY-MM-DD_HH:MM-HH:MM": [ { id, zhName, enName, branchName, contactTeacher, ... } ] }
+    let customAvatars = {}; // { teacherId: "data:image/jpeg;base64,..." }
+
+    let lastKnownUpdatedAt = 0;
+    let currentSequence = 0;
+
+    let broadcastChannel = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        broadcastChannel = new BroadcastChannel('elitetalk_live_sync_channel');
+        broadcastChannel.onmessage = (event) => {
+          if (event.data && event.data.type === 'SYNC_UPDATE' && event.data.payload) {
+            applyDataset(event.data.payload, false, '同裝置分頁同步');
+          }
+        };
+      }
+    } catch (e) {}
 
     // Master Control & Account State
     const MASTER_ADMIN_PASSCODE = 'elite28371657';
@@ -1272,102 +1302,95 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
     ];
 
-    let auditLogs = []; // Array of { timestamp, branch, userName, username, actionType, description }
+    let auditLogs = [];
 
     // Multi-Layer Cloud Sync Channels
-    // Layer 1: Native Firebase Firestore (if __firebase_config is present)
     let fbDb = null;
     let fbAuth = null;
     let fbUser = null;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'elitetalk-global-hub';
 
-    // Layer 2: User-configured Supabase PostgreSQL (if configured)
     let supabaseClient = null;
     let customSupabaseUrl = '';
     let customSupabaseKey = '';
 
-    // Layer 3: High-Capacity Permanent JSON Cloud Store (Supports 10+ teachers & full schedules without 4KB limit or 12h expiry)
     const LS_KEY_SNAPSHOTS = 'ELITETALK_AUTO_SNAPSHOTS_V4';
-    const LS_KEY_CLOUD_BIN_ID = 'ELITETALK_PERSISTENT_BIN_ID_V4';
-    // Dedicated permanent JSONBlob endpoint for EliteTalk Multi-Campus Sync (No 4KB limit, No 12-hour expiry!)
-    const FIXED_JSONBLOB_URL = 'https://jsonblob.com/api/jsonBlob/019338a1-7b2c-7d8e-9f10-28371657elit';
-    const KV_PERSISTENT_URL = 'https://kvdb.io/A9xK7pL2mQ8wR4vN6yT1zB/elitetalk_master_state_v4';
-    const NTFY_CORE_TOPIC = 'elitetalk_v4_heartbeat_28371657';
+    const JSONSTORAGE_USER_ID = '9b8a7c6d-5e4f-3a2b-1c0d-28371657elit';
+    const JSONSTORAGE_ITEM_ID = 'elitetalk-master-hub-v5';
+    const PERSISTENT_JSON_API_URL = `https://api.jsonstorage.net/v1/json/${JSONSTORAGE_USER_ID}/${JSONSTORAGE_ITEM_ID}`;
+    const NTFY_CORE_TOPIC = 'elitetalk_v5_central_sync_28371657';
     const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
-    const NTFY_AVATAR_PREFIX = 'elitetalk_v4_avatar_28371657_';
-
-    // Cross-tab instant broadcast
-    const broadcastChannel = window.BroadcastChannel ? new BroadcastChannel('elitetalk_sync_v4') : null;
-    if (broadcastChannel) {
-      broadcastChannel.onmessage = (event) => {
-        if (event.data && event.data.type === 'SYNC_UPDATE') {
-          applyDataset(event.data.payload, false, '本機跨分頁同步');
-        }
-      };
-    }
-
-    // Default Seed Teachers
-    let teachers = [
-      {
-        id: 't_elite01',
-        name: 'Teacher Elite01',
-        tag: 'Taiwan 專任口說外師',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80',
-        bio: '熱愛引導學生主動開口，注重生活日常口語自然表達。'
-      }
-    ];
-
-    let availability = {};
-    let bookings = {};
-    let customAvatars = {}; // Map of teacherId -> compressed base64 avatar
-
-    let lastKnownUpdatedAt = 0;
-    let currentSequence = 0;
-    let isSyncInProgress = false;
-
-    function countActiveSlots(availObj = availability) {
-      if (!availObj) return 0;
-      return Object.values(availObj).filter(v => v === true).length;
-    }
-
-    function countTotalBookings(bookObj = bookings) {
-      if (!bookObj) return 0;
-      return Object.values(bookObj).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
-    }
+    const NTFY_AVATAR_PREFIX = 'elitetalk_v5_avatar_28371657_';
 
     /* ==========================================================
-       AUTOMATIC TIME-MACHINE SNAPSHOTS (防止任何意外清空，隨時可一鍵救回)
+       2.1 SNAPSHOT TIME-MACHINE & ANTI-WIPE HELPERS
        ========================================================== */
-    function saveAutoSnapshot(reason = '自動存檔') {
+    function countActiveSlots(availObj) {
+      if (!availObj || typeof availObj !== 'object') return 0;
+      return Object.values(availObj).filter(Boolean).length;
+    }
+
+    function countTotalBookings(bookObj) {
+      if (!bookObj || typeof bookObj !== 'object') return 0;
+      let total = 0;
+      Object.values(bookObj).forEach(arr => {
+        if (Array.isArray(arr)) total += arr.length;
+      });
+      return total;
+    }
+
+    function alignToActiveScheduleDate() {
+      const hasSlotsOnCurrentDay = Object.keys(availability).some(key => {
+        if (availability[key] !== true) return false;
+        const { dateStr } = parseSlotKey(key);
+        return dateStr === selectedDateStr;
+      });
+
+      if (hasSlotsOnCurrentDay) return;
+
+      const activeDates = new Set();
+      Object.keys(availability).forEach(key => {
+        if (availability[key] === true) {
+          const { dateStr } = parseSlotKey(key);
+          if (dateStr) activeDates.add(dateStr);
+        }
+      });
+
+      if (activeDates.size === 0) return;
+
+      const sortedDates = Array.from(activeDates).sort();
+      const todayIso = formatDateIso(systemToday);
+      const targetDateStr = sortedDates.find(d => d >= todayIso) || sortedDates[sortedDates.length - 1];
+
+      if (targetDateStr) {
+        const parts = targetDateStr.split('-');
+        const targetDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!isNaN(targetDate.getTime())) {
+          currentMonday = getMondayOfWeek(targetDate);
+          selectedDateStr = targetDateStr;
+          updateCalendarBanner();
+        }
+      }
+    }
+
+    function saveAutoSnapshot(reason = '自動備份') {
       try {
-        const slotCount = countActiveSlots(availability);
-        const teacherCount = teachers.length;
-        // 只在有實質資料時才建立快照，避免空白狀態洗掉有效快照
-        if (teacherCount === 0 && slotCount === 0) return;
-
         const raw = localStorage.getItem(LS_KEY_SNAPSHOTS);
-        let snapshots = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(snapshots)) snapshots = [];
-
-        const dataset = getFullDataset(false);
-        snapshots.unshift({
-          id: 'snap_' + Date.now(),
+        const snapshots = raw ? JSON.parse(raw) : [];
+        const payload = getFullDataset(false);
+        const snap = {
+          id: 'snap_' + Date.now() + Math.random().toString(36).substr(2, 3),
           savedAt: Date.now(),
           reason,
-          teacherCount,
-          slotCount,
+          teacherCount: teachers.length,
+          slotCount: countActiveSlots(availability),
           bookingCount: countTotalBookings(bookings),
-          payload: dataset
-        });
-
-        // 保留最近 12 份有效快照
-        if (snapshots.length > 12) {
-          snapshots = snapshots.slice(0, 12);
-        }
+          payload
+        };
+        snapshots.unshift(snap);
+        if (snapshots.length > 10) snapshots.length = 10;
         localStorage.setItem(LS_KEY_SNAPSHOTS, JSON.stringify(snapshots));
-      } catch (e) {
-        console.warn('Snapshot save warning:', e);
-      }
+      } catch (e) {}
     }
 
     function renderSnapshotList() {
@@ -1376,8 +1399,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       try {
         const raw = localStorage.getItem(LS_KEY_SNAPSHOTS);
         const snapshots = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(snapshots) || snapshots.length === 0) {
-          container.innerHTML = `<div class="p-3 text-center text-slate-400">尚無歷史快照紀錄</div>`;
+        if (snapshots.length === 0) {
+          container.innerHTML = `<div class="p-3 text-center text-slate-400">尚無歷史快照</div>`;
           return;
         }
         container.innerHTML = '';
@@ -1404,17 +1427,19 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         const snapshots = raw ? JSON.parse(raw) : [];
         const target = snapshots.find(s => s.id === snapId);
         if (!target || !target.payload) {
-          showToast('找不到該快照資料！', 'error');
+          showToast('找不到該歷史快照資料！', 'error');
           return;
         }
-        target.payload.updatedAt = Date.now();
-        target.payload.forceClear = true;
-        applyDataset(target.payload, true, '歷史快照還原');
-        renderSnapshotList();
-        showToast(`已成功還原至 ${new Date(target.savedAt).toLocaleTimeString('zh-TW')} 的完整資料！`, 'success');
-        await pushCloudData(true);
+        const restoredPayload = {
+          ...target.payload,
+          updatedAt: Date.now(),
+          forceClear: true
+        };
+        applyDataset(restoredPayload, true, '歷史快照還原');
+        showToast(`已成功還原至 ${new Date(target.savedAt).toLocaleString('zh-TW')} 的版本！`, 'success');
+        await pushCloudData(true, '歷史快照還原發布');
       } catch (e) {
-        showToast('還原快照失敗！', 'error');
+        showToast('還原快照時發生錯誤！', 'error');
       }
     }
 
