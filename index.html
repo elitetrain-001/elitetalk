@@ -1743,22 +1743,25 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
               }
             }
           }
-        } catch (err) {}
+        } catch (errFb) {}
       }
 
-      // 3. Permanent KVDB Store (Large payload capable, no 12h expiry)
+      // 3. Permanent JSONStorage Cloud Store (Large payload capable, no 12h expiry)
       try {
-        const resKv = await fetch(KV_PERSISTENT_URL, { method: 'GET', cache: 'no-store' });
-        if (resKv.ok) {
-          const kvData = await resKv.json();
-          if (kvData && kvData.teachers && (!newestPayload || (kvData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-            newestPayload = kvData;
+        const resJsonStore = await fetch(`${PERSISTENT_JSON_API_URL}?_t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (resJsonStore.ok) {
+          const storeData = await resJsonStore.json();
+          if (storeData && storeData.teachers && (!newestPayload || (storeData.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+            newestPayload = storeData;
             winningSource = '跨分校永久資料庫';
           }
         }
       } catch (e) {}
 
-      // 4. Ntfy Heartbeat Stream (Real-time fallback)
+      // 4. Ntfy Heartbeat Stream (Real-time fallback, mobile 4G/5G friendly)
       try {
         const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all`, {
           method: 'GET',
@@ -1877,61 +1880,61 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       }
 
       let verifiedWriteCount = 0;
-
-      // 3. Push to Supabase if configured (Full dataset with all avatars & unlimited size)
-      if (supabaseClient) {
-        try {
-          const { error } = await supabaseClient
-            .from('lesson_hub_state')
-            .upsert({
-              id: 'central_state',
-              payload: fullDataset,
-              updated_at: fullDataset.updatedAt
-            });
-          if (!error) verifiedWriteCount++;
-        } catch (e) {}
-      }
-
-      // 4. Push to Firebase Firestore if available
-      if (fbDb && fbUser) {
-        try {
-          const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
-          await setDoc(stateDocRef, {
-            payloadJson: JSON.stringify(fullDataset),
-            updatedAt: fullDataset.updatedAt
-          });
-          verifiedWriteCount++;
-        } catch (e) {}
-      }
-
-      // 5. Push full dataset to Permanent KVDB (Supports large 10+ teachers & schedules, never expires after 12h)
+      // 5. Push full dataset to Permanent Cloud Store & Real-time Mobile-Friendly Broadcast
       try {
         const compactPayload = getCompactCoreDataset();
         if (forceClear) compactPayload.forceClear = true;
         const fullJsonStr = JSON.stringify(compactPayload);
 
-        const resKv = await fetch(KV_PERSISTENT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: fullJsonStr
-        });
-        if (resKv.ok) {
-          verifiedWriteCount++;
-        }
+        // 5A. Try PUT to Permanent JSONStorage (auto-create via POST if 404)
+        try {
+          let resStore = await fetch(PERSISTENT_JSON_API_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: fullJsonStr
+          });
+          if (resStore.status === 404) {
+            resStore = await fetch('https://api.jsonstorage.net/v1/json', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: fullJsonStr
+            });
+          }
+          if (resStore.ok) {
+            verifiedWriteCount++;
+          }
+        } catch (errStore) {}
 
-        // Also send lightweight heartbeat/payload to Ntfy if under 3.8KB
-        if (fullJsonStr.length < 3800) {
-          const resNtfy = await fetch(NTFY_CORE_URL, { method: 'POST', body: fullJsonStr });
+        // 5B. Always publish to Ntfy Real-time Stream (Works reliably across all mobile 4G/5G & desktop browsers)
+        if (fullJsonStr.length < 3900) {
+          const resNtfy = await fetch(NTFY_CORE_URL, {
+            method: 'POST',
+            body: fullJsonStr
+          });
           if (resNtfy.ok) verifiedWriteCount++;
         } else {
-          // Send lightweight ping so other clients know to pull from KVDB immediately
-          const pingPayload = JSON.stringify({
-            v: 4,
-            pingOnly: true,
-            updatedAt: fullDataset.updatedAt,
-            sequence: fullDataset.sequence
-          });
-          await fetch(NTFY_CORE_URL, { method: 'POST', body: pingPayload });
+          // Split into lightweight core state without long audit logs so it stays < 3.9KB
+          const ultraLightPayload = {
+            ...compactPayload,
+            auditLogs: compactPayload.auditLogs.slice(0, 3)
+          };
+          const ultraLightStr = JSON.stringify(ultraLightPayload);
+          if (ultraLightStr.length < 3900) {
+            const resNtfyLight = await fetch(NTFY_CORE_URL, {
+              method: 'POST',
+              body: ultraLightStr
+            });
+            if (resNtfyLight.ok) verifiedWriteCount++;
+          } else {
+            const pingPayload = JSON.stringify({
+              v: 4,
+              pingOnly: true,
+              updatedAt: fullDataset.updatedAt,
+              sequence: fullDataset.sequence
+            });
+            const resPing = await fetch(NTFY_CORE_URL, { method: 'POST', body: pingPayload });
+            if (resPing.ok) verifiedWriteCount++;
+          }
         }
       } catch (err) {
         console.warn("Cloud push error:", err);
