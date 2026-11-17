@@ -1183,9 +1183,13 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       </div>
 
       <div class="flex flex-col sm:flex-row items-center justify-end gap-2">
-        <button type="button" onclick="runDeepHistoryRepair(true)" class="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5">
+        <button type="button" id="btn-deep-repair" onclick="runDeepHistoryRepair(true)" class="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          深度掃描雲端歷史並補齊遺漏資料
+          <span>深度掃描雲端歷史並補齊遺漏資料</span>
+        </button>
+        <button type="button" id="btn-force-broadcast" onclick="forcePushLocalAsAuthoritative()" class="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5" title="在資料最完整的那台電腦按下此鈕，強制將本機完整課表同步給所有手機與分校">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          <span>以此裝置為準強制發布</span>
         </button>
         <button type="button" onclick="closeIntegrityCheckModal()" class="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold">關閉</button>
       </div>
@@ -1958,19 +1962,79 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       document.getElementById('integrity-check-modal')?.classList.add('hidden');
     }
 
+    async function forcePushLocalAsAuthoritative() {
+      const btn = document.getElementById('btn-force-broadcast');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span> <span>正在強制發布...</span>`;
+      }
+      try {
+        // Clear any stale tombstones for currently active local slots and bookings
+        Object.keys(availability).forEach(k => {
+          if (availability[k] === true && tombstones.slots[k]) {
+            delete tombstones.slots[k];
+          }
+        });
+        Object.keys(bookings).forEach(k => {
+          (bookings[k] || []).forEach(b => {
+            if (b && b.id && tombstones.bookings[b.id]) {
+              delete tombstones.bookings[b.id];
+            }
+          });
+        });
+
+        await pushCloudData(true, '以主控端完整課表強制同步發布');
+        updateIntegrityBadge();
+        if (!document.getElementById('integrity-check-modal')?.classList.contains('hidden')) {
+          openIntegrityCheckModal();
+        }
+        showToast(`已成功將本機完整資料（${teachers.length}位外師 / ${countActiveSlots(availability)}節 / ${countTotalBookings(bookings)}預約）強制發布至所有分校！`, 'success');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg><span>以此裝置為準強制發布</span>`;
+        }
+      }
+    }
+
     async function runDeepHistoryRepair(showFeedback = true) {
+      const btn = document.getElementById('btn-deep-repair');
+      if (btn && showFeedback) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span> <span>正在深度掃描雲端歷史...</span>`;
+      }
+
+      let repairedTeachers = 0;
       let repairedSlots = 0;
       let repairedBookings = 0;
+
+      const scanTopics = [
+        NTFY_CORE_URL,
+        'https://ntfy.sh/elitetalk_v6_chunked_sync_28371657',
+        'https://ntfy.sh/elitetalk_v5_core_stream_28371657'
+      ];
+
       try {
-        const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const res = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all&_cb=${cacheBuster}`, {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (res.ok) {
-          const text = (await res.text()).trim();
-          if (text) {
+        // 1. Scan Supabase & Firebase first if available
+        const { newestPayload } = await fetchNewestCloudPayloadRaw();
+        const decodedList = [];
+        if (newestPayload) decodedList.push(newestPayload);
+
+        // 2. Scan all historical messages across current & previous cloud topics
+        for (const topicBase of scanTopics) {
+          try {
+            const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+            const res = await fetch(`${topicBase}/json?poll=1&since=all&_cb=${cacheBuster}`, {
+              method: 'GET',
+              cache: 'no-store'
+            });
+            if (!res.ok) continue;
+            const text = (await res.text()).trim();
+            if (!text) continue;
+
             const lines = text.split('\n');
+            const chunkBatches = new Map();
+
             for (const line of lines) {
               try {
                 const msg = JSON.parse(line);
@@ -1980,75 +2044,89 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                   : msg.message;
                 if (!rawStr) continue;
                 const parsed = JSON.parse(rawStr);
+
+                if (parsed && parsed.chunkBatch && typeof parsed.idx === 'number' && parsed.total) {
+                  let batch = chunkBatches.get(parsed.chunkBatch);
+                  if (!batch) {
+                    batch = { total: parsed.total, ts: Number(parsed.ts) || 0, parts: new Map() };
+                    chunkBatches.set(parsed.chunkBatch, batch);
+                  }
+                  batch.parts.set(parsed.idx, parsed.data);
+                  if (batch.parts.size === batch.total) {
+                    let fullStr = '';
+                    for (let p = 0; p < batch.total; p++) fullStr += batch.parts.get(p) || '';
+                    const decomp = fullStr.startsWith('GZ:') ? await decompressBase64ToString(fullStr) : fullStr;
+                    const dec = decodeCompactPayload(JSON.parse(decomp));
+                    if (dec) decodedList.push(dec);
+                  }
+                  continue;
+                }
+
                 const decoded = decodeCompactPayload(parsed);
-                if (!decoded) continue;
-
-                if (decoded.tombstones) {
-                  ['slots', 'bookings', 'teachers', 'accounts'].forEach(cat => {
-                    if (decoded.tombstones[cat]) {
-                      tombstones[cat] = { ...tombstones[cat], ...decoded.tombstones[cat] };
-                    }
-                  });
-                }
-
-                if (Array.isArray(decoded.teachers)) {
-                  decoded.teachers.forEach(t => {
-                    if (!tombstones.teachers[t.id] && !teachers.some(lt => lt.id === t.id)) {
-                      teachers.push({
-                        id: t.id,
-                        name: t.name,
-                        tag: t.tag || '專任英語口說師資',
-                        bio: t.bio || '',
-                        avatar: customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`,
-                        hasCustomAvatar: Boolean(t.hasCustomAvatar)
-                      });
-                    }
-                  });
-                }
-
-                if (decoded.availability) {
-                  Object.keys(decoded.availability).forEach(k => {
-                    if (decoded.availability[k] === true && !tombstones.slots[k] && !availability[k]) {
-                      availability[k] = true;
-                      repairedSlots++;
-                    }
-                  });
-                }
-
-                if (decoded.bookings) {
-                  Object.keys(decoded.bookings).forEach(k => {
-                    const list = decoded.bookings[k] || [];
-                    if (list.length > 0 && !tombstones.slots[k]) {
-                      if (!availability[k]) {
-                        availability[k] = true;
-                        repairedSlots++;
-                      }
-                      if (!bookings[k]) bookings[k] = [];
-                      list.forEach(b => {
-                        if (b && !tombstones.bookings[b.id] && !bookings[k].some(lb => lb.id === b.id)) {
-                          bookings[k].push(b);
-                          repairedBookings++;
-                        }
-                      });
-                    }
-                  });
-                }
+                if (decoded) decodedList.push(decoded);
               } catch (e) {}
             }
+          } catch (e) {}
+        }
+
+        // 3. Union-merge all discovered teachers, slots, and bookings
+        for (const decoded of decodedList) {
+          if (Array.isArray(decoded.teachers)) {
+            decoded.teachers.forEach(t => {
+              if (t && t.id && !tombstones.teachers[t.id] && !teachers.some(lt => lt.id === t.id)) {
+                teachers.push({
+                  id: t.id,
+                  name: t.name,
+                  tag: t.tag || '專任英語口說師資',
+                  bio: t.bio || '',
+                  avatar: customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`,
+                  hasCustomAvatar: Boolean(t.hasCustomAvatar)
+                });
+                repairedTeachers++;
+              }
+            });
+          }
+
+          if (decoded.availability) {
+            Object.keys(decoded.availability).forEach(k => {
+              if (decoded.availability[k] === true && !tombstones.slots[k] && !availability[k]) {
+                availability[k] = true;
+                repairedSlots++;
+              }
+            });
+          }
+
+          if (decoded.bookings) {
+            Object.keys(decoded.bookings).forEach(k => {
+              const list = decoded.bookings[k] || [];
+              if (list.length > 0 && !tombstones.slots[k]) {
+                if (!availability[k]) {
+                  availability[k] = true;
+                  repairedSlots++;
+                }
+                if (!bookings[k]) bookings[k] = [];
+                list.forEach(b => {
+                  if (b && !tombstones.bookings[b.id] && !bookings[k].some(lb => lb.id === b.id)) {
+                    if (bookings[k].length < MAX_STUDENTS_PER_SLOT) {
+                      bookings[k].push(b);
+                      repairedBookings++;
+                    }
+                  }
+                });
+              }
+            });
           }
         }
-      } catch (e) {}
 
-      // Prune any tombstoned records
-      Object.keys(availability).forEach(k => {
-        if (tombstones.slots[k]) delete availability[k];
-      });
-      Object.keys(bookings).forEach(k => {
-        bookings[k] = (bookings[k] || []).filter(b => b && !tombstones.bookings[b.id]);
-        if (bookings[k].length === 0) delete bookings[k];
-      });
+        // Prune confirmed tombstoned records
+        Object.keys(availability).forEach(k => {
+          if (tombstones.slots[k]) delete availability[k];
+        });
+        Object.keys(bookings).forEach(k => {
+          bookings[k] = (bookings[k] || []).filter(b => b && !tombstones.bookings[b.id]);
+          if (bookings[k].length === 0) delete bookings[k];
+        });
 
-      if (repairedSlots > 0 || repairedBookings > 0) {
         renderWeekdayTabs();
         populateTeacherFilterOptions();
         populateAdminTeacherSelector();
@@ -2059,18 +2137,24 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         try {
           localStorage.setItem(LS_KEY_DATA, JSON.stringify(getFullDataset(false)));
         } catch (e) {}
-      }
 
-      updateIntegrityBadge();
-      if (!document.getElementById('integrity-check-modal')?.classList.contains('hidden')) {
-        openIntegrityCheckModal();
-      }
+        updateIntegrityBadge();
+        if (!document.getElementById('integrity-check-modal')?.classList.contains('hidden')) {
+          openIntegrityCheckModal();
+        }
 
-      if (showFeedback) {
-        if (repairedSlots > 0 || repairedBookings > 0) {
-          showToast(`深度修復完成！已自動補齊 ${repairedSlots} 個外師時段與 ${repairedBookings} 筆學生預約！`, 'success');
-        } else {
-          showToast(`資料完整性檢查通過！目前無遺漏資料 (校驗碼 #${computeDataChecksum()})`, 'success');
+        if (showFeedback) {
+          if (repairedTeachers > 0 || repairedSlots > 0 || repairedBookings > 0) {
+            showToast(`深度修復完成！已補齊 ${repairedTeachers} 位外師、${repairedSlots} 個時段與 ${repairedBookings} 筆預約！`, 'success');
+            await pushCloudData(true, '深度歷史掃描補齊同步');
+          } else {
+            showToast(`雲端歷史掃描完成！目前無遺漏資料 (指紋碼 #${computeDataChecksum()})`, 'info');
+          }
+        }
+      } finally {
+        if (btn && showFeedback) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>深度掃描雲端歷史並補齊遺漏資料</span>`;
         }
       }
     }
@@ -4540,6 +4624,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     window.openIntegrityCheckModal = openIntegrityCheckModal;
     window.closeIntegrityCheckModal = closeIntegrityCheckModal;
     window.runDeepHistoryRepair = runDeepHistoryRepair;
+    window.forcePushLocalAsAuthoritative = forcePushLocalAsAuthoritative;
 
     function dismissLoaderForcefully() {
       const loader = document.getElementById('mandatory-cloud-loader');
