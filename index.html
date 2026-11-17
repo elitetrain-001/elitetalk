@@ -1732,19 +1732,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         customAvatars = { ...customAvatars, ...data.customAvatars };
       }
 
-      // 1. Merge Teachers respecting tombstones
+      // 1. Merge Teachers respecting tombstones (authoritative cloud list + local avatar cache)
       if (Array.isArray(data.teachers) && data.teachers.length > 0) {
         const teacherMap = new Map();
-        teachers.forEach(t => {
-          if (!tombstones.teachers[t.id]) teacherMap.set(t.id, t);
-        });
         data.teachers.forEach(t => {
           if (tombstones.teachers[t.id]) return;
           if (t.avatar && t.avatar.startsWith('data:')) {
             customAvatars[t.id] = t.avatar;
           }
-          const existing = teacherMap.get(t.id);
-          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || (existing && existing.avatar) || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
+          const resolvedAvatar = customAvatars[t.id] || t.avatar || t.avatarUrl || `https://placehold.co/150x150/0284c7/ffffff?text=${encodeURIComponent((t.name || 'T').slice(0, 2))}`;
           teacherMap.set(t.id, {
             id: t.id,
             name: t.name,
@@ -1782,12 +1778,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         bookings = nextBookings;
       }
 
-      // 4. Union-Merge Authorized Accounts respecting account tombstones
+      // 4. Authoritative Authorized Accounts respecting account tombstones
       if (Array.isArray(data.authorizedAccounts) && data.authorizedAccounts.length > 0) {
         const accMap = new Map();
-        authorizedAccounts.forEach(acc => {
-          if (!tombstones.accounts[acc.username]) accMap.set(acc.username, acc);
-        });
         data.authorizedAccounts.forEach(acc => {
           if (!tombstones.accounts[acc.username]) accMap.set(acc.username, acc);
         });
@@ -1806,14 +1799,17 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           .slice(0, 500);
       }
 
-      if (!hasPerformedInitialDateAlign && countActiveSlots(availability) > 0) {
+      // Auto-align to active schedule date whenever current date has 0 slots
+      if (countActiveSlots(availability) > 0) {
         hasPerformedInitialDateAlign = true;
         alignToActiveScheduleDate();
       }
 
+      // Force full UI re-render across all tabs & weekday headers
+      renderWeekdayTabs();
       populateTeacherFilterOptions();
       populateAdminTeacherSelector();
-      if (currentView === 'student') renderStudentSchedule();
+      renderStudentSchedule();
       if (currentView === 'mybookings') listAllUpcomingBookings();
       if (currentView === 'admin') renderAdminView();
       if (currentView === 'stats') refreshStatisticsReport();
