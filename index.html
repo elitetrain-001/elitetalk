@@ -1269,6 +1269,48 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     let availability = {}; // { "teacherId_YYYY-MM-DD_HH:MM-HH:MM": true }
     let bookings = {};     // { "teacherId_YYYY-MM-DD_HH:MM-HH:MM": [ { id, zhName, enName, branchName, contactTeacher, ... } ] }
     let customAvatars = {}; // { teacherId: "data:image/jpeg;base64,..." }
+    let tombstones = { slots: {}, bookings: {}, teachers: {}, accounts: {} };
+
+    function countActiveSlots(availObj) {
+      if (!availObj || typeof availObj !== 'object') return 0;
+      return Object.keys(availObj).filter(k => availObj[k] === true).length;
+    }
+
+    function countTotalBookings(bookObj) {
+      if (!bookObj || typeof bookObj !== 'object') return 0;
+      let total = 0;
+      Object.keys(bookObj).forEach(k => {
+        if (Array.isArray(bookObj[k])) total += bookObj[k].length;
+      });
+      return total;
+    }
+
+    function alignToActiveScheduleDate() {
+      const hasSlotsToday = Object.keys(availability).some(k => availability[k] === true && k.includes(`_${selectedDateStr}_`));
+      if (hasSlotsToday) return;
+
+      const activeDates = new Set();
+      Object.keys(availability).forEach(k => {
+        if (availability[k] === true) {
+          const parsed = parseSlotKey(k);
+          if (parsed && parsed.dateStr) activeDates.add(parsed.dateStr);
+        }
+      });
+
+      if (activeDates.size > 0) {
+        const sortedDates = Array.from(activeDates).sort();
+        const todayStr = formatDateIso(systemToday);
+        const upcoming = sortedDates.find(d => d >= todayStr) || sortedDates[sortedDates.length - 1];
+        if (upcoming) {
+          const targetDate = new Date(upcoming + 'T00:00:00');
+          if (!isNaN(targetDate.getTime())) {
+            currentMonday = getMondayOfWeek(targetDate);
+            selectedDateStr = upcoming;
+            updateCalendarBanner();
+          }
+        }
+      }
+    }
 
     let lastKnownUpdatedAt = 0;
     let currentSequence = 0;
@@ -1316,66 +1358,36 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     let customSupabaseKey = '';
 
     const LS_KEY_SNAPSHOTS = 'ELITETALK_AUTO_SNAPSHOTS_V4';
-    const NTFY_CORE_TOPIC = 'elitetalk_v6_central_sync_28371657';
+    const NTFY_CORE_TOPIC = 'elitetalk_v7_atomic_sync_28371657';
     const NTFY_CORE_URL = `https://ntfy.sh/${NTFY_CORE_TOPIC}`;
-    const NTFY_AVATAR_PREFIX = 'elitetalk_v6_avatar_28371657_';
+    const NTFY_AVATAR_PREFIX = 'elitetalk_v7_avatar_28371657_';
 
-    // Distributed Tombstones (Record explicit deletions with timestamps so deleted items stay deleted while concurrent additions merge safely)
-    let tombstones = {
-      slots: {},    // { slotKey: deletedAtTimestamp }
-      bookings: {}, // { bookingId: deletedAtTimestamp }
-      teachers: {}, // { teacherId: deletedAtTimestamp }
-      accounts: {}  // { username: deletedAtTimestamp }
-    };
-
-    /* ==========================================================
-       2.1 SNAPSHOT TIME-MACHINE & ANTI-WIPE HELPERS
-       ========================================================== */
-    function countActiveSlots(availObj) {
-      if (!availObj || typeof availObj !== 'object') return 0;
-      return Object.values(availObj).filter(Boolean).length;
+    // Native GZIP compression helpers so the entire dataset fits into ONE atomic packet (< 2.5KB)
+    async function compressStringToBase64(str) {
+      try {
+        if (typeof CompressionStream === 'undefined') return null;
+        const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+        const buf = await new Response(stream).arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return 'GZ:' + btoa(binary);
+      } catch (e) {
+        return null;
+      }
     }
 
-    function countTotalBookings(bookObj) {
-      if (!bookObj || typeof bookObj !== 'object') return 0;
-      let total = 0;
-      Object.values(bookObj).forEach(arr => {
-        if (Array.isArray(arr)) total += arr.length;
-      });
-      return total;
-    }
-
-    function alignToActiveScheduleDate() {
-      const hasSlotsOnCurrentDay = Object.keys(availability).some(key => {
-        if (availability[key] !== true) return false;
-        const { dateStr } = parseSlotKey(key);
-        return dateStr === selectedDateStr;
-      });
-
-      if (hasSlotsOnCurrentDay) return;
-
-      const activeDates = new Set();
-      Object.keys(availability).forEach(key => {
-        if (availability[key] === true) {
-          const { dateStr } = parseSlotKey(key);
-          if (dateStr) activeDates.add(dateStr);
-        }
-      });
-
-      if (activeDates.size === 0) return;
-
-      const sortedDates = Array.from(activeDates).sort();
-      const todayIso = formatDateIso(systemToday);
-      const targetDateStr = sortedDates.find(d => d >= todayIso) || sortedDates[sortedDates.length - 1];
-
-      if (targetDateStr) {
-        const parts = targetDateStr.split('-');
-        const targetDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-        if (!isNaN(targetDate.getTime())) {
-          currentMonday = getMondayOfWeek(targetDate);
-          selectedDateStr = targetDateStr;
-          updateCalendarBanner();
-        }
+    async function decompressBase64ToString(payloadStr) {
+      try {
+        if (!payloadStr || !payloadStr.startsWith('GZ:')) return payloadStr;
+        if (typeof DecompressionStream === 'undefined') return null;
+        const binary = atob(payloadStr.slice(3));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return await new Response(stream).text();
+      } catch (e) {
+        return null;
       }
     }
 
@@ -1889,19 +1901,19 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           const stateDocRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
           const snap = await getDoc(stateDocRef);
           if (snap.exists()) {
-            const data = snap.data();
-            if (data && data.payloadJson) {
-              const payload = decodeCompactPayload(JSON.parse(data.payloadJson));
-              if (payload && (!newestPayload || (payload.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
-                newestPayload = payload;
-                winningSource = 'Firebase 雲端';
+            const fbData = snap.data();
+            if (fbData && fbData.payloadJson) {
+              const parsedFb = decodeCompactPayload(JSON.parse(fbData.payloadJson));
+              if (parsedFb && (!newestPayload || (parsedFb.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
+                newestPayload = parsedFb;
+                winningSource = 'Firebase 雲端資料庫';
               }
             }
           }
         } catch (errFb) {}
       }
 
-      // 3. Ntfy Multi-Chunk Distributed Stream (With Anti-Cache & Retry Protection)
+      // 3. Ntfy Atomic Compressed Stream (With Anti-Cache & Retry Protection)
       try {
         const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         const resNtfy = await fetch(`${NTFY_CORE_URL}/json?poll=1&since=all&_cb=${cacheBuster}`, {
@@ -1917,7 +1929,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           const rawText = (await resNtfy.text()).trim();
           if (rawText) {
             const lines = rawText.split('\n');
-            const chunkBatches = new Map(); // batchId -> { total, ts, parts: Map(idx -> str) }
+            const chunkBatches = new Map();
             let newestCompleteBatchTs = 0;
 
             for (let i = lines.length - 1; i >= 0; i--) {
@@ -1926,9 +1938,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
               try {
                 const msg = JSON.parse(line);
                 if (!msg || msg.event !== 'message' || !msg.message) continue;
-                const parsed = JSON.parse(msg.message);
 
-                // Case A: Multi-chunk packet { chunkBatch, idx, total, ts, data }
+                // Decompress if GZIP-compressed atomic packet
+                const rawMsgStr = msg.message.startsWith('GZ:')
+                  ? await decompressBase64ToString(msg.message)
+                  : msg.message;
+                if (!rawMsgStr) continue;
+
+                const parsed = JSON.parse(rawMsgStr);
+
+                // Case A: Multi-chunk fallback packet
                 if (parsed && parsed.chunkBatch && typeof parsed.idx === 'number' && parsed.total) {
                   let batch = chunkBatches.get(parsed.chunkBatch);
                   if (!batch) {
@@ -1942,7 +1961,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                     for (let p = 0; p < batch.total; p++) {
                       fullStr += batch.parts.get(p) || '';
                     }
-                    const reassembled = decodeCompactPayload(JSON.parse(fullStr));
+                    const decompressedFull = fullStr.startsWith('GZ:') ? await decompressBase64ToString(fullStr) : fullStr;
+                    const reassembled = decodeCompactPayload(JSON.parse(decompressedFull));
                     if (reassembled && (!newestPayload || (reassembled.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                       newestPayload = reassembled;
                       newestCompleteBatchTs = batch.ts;
@@ -1952,7 +1972,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
                   continue;
                 }
 
-                // Case B: Single complete packet
+                // Case B: Single atomic packet
                 const decoded = decodeCompactPayload(parsed);
                 if (decoded && decoded.teachers && (!newestPayload || (decoded.updatedAt || 0) > (newestPayload.updatedAt || 0))) {
                   newestPayload = decoded;
@@ -1968,10 +1988,14 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
     }
 
     // Pull Central Data from All Available Cloud Channels
-    async function pullCloudData(showFeedback = false) {
+    async function pullCloudData(showFeedback = false, forceResetVersion = false) {
       if (isSyncInProgress) return false;
       isSyncInProgress = true;
       try {
+        if (forceResetVersion) {
+          lastKnownUpdatedAt = 0;
+          currentSequence = 0;
+        }
         const { newestPayload, winningSource } = await fetchNewestCloudPayloadRaw();
 
         if (newestPayload) {
@@ -2105,11 +2129,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
         } catch (err) {}
       }
 
-      // 4. Push to Firebase if available
-      // 5. Push full compacted dataset to Ntfy Distributed Stream (Atomic Sequential Chunk Delivery with Retry)
+      // 5. Push full compacted & GZIP-compressed dataset to Ntfy Atomic Stream
       try {
         const compactObj = encodeCompactPayload(forceClear);
         const compactStr = JSON.stringify(compactObj);
+        const compressedStr = await compressStringToBase64(compactStr);
+        const wirePayload = (compressedStr && compressedStr.length < compactStr.length) ? compressedStr : compactStr;
         const MAX_CHUNK_SIZE = 3600;
 
         const postWithRetry = async (bodyStr, maxRetries = 2) => {
@@ -2129,17 +2154,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
           return false;
         };
 
-        if (compactStr.length <= MAX_CHUNK_SIZE) {
-          const ok = await postWithRetry(compactStr);
+        if (wirePayload.length <= MAX_CHUNK_SIZE) {
+          const ok = await postWithRetry(wirePayload);
           if (ok) verifiedWriteCount++;
         } else {
-          // Split large payload into numbered sequential chunks with retry so 100% of parts arrive intact
-          const totalChunks = Math.ceil(compactStr.length / MAX_CHUNK_SIZE);
+          const totalChunks = Math.ceil(wirePayload.length / MAX_CHUNK_SIZE);
           const batchId = 'b_' + fullDataset.updatedAt + '_' + Math.random().toString(36).substr(2, 4);
           let allChunksOk = true;
 
           for (let idx = 0; idx < totalChunks; idx++) {
-            const sliceData = compactStr.slice(idx * MAX_CHUNK_SIZE, (idx + 1) * MAX_CHUNK_SIZE);
+            const sliceData = wirePayload.slice(idx * MAX_CHUNK_SIZE, (idx + 1) * MAX_CHUNK_SIZE);
             const chunkPacket = JSON.stringify({
               chunkBatch: batchId,
               idx,
@@ -4327,7 +4351,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.lesson_hub_state;</pre>
       let cloudPulled = false;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          cloudPulled = await pullCloudData(false);
+          cloudPulled = await pullCloudData(false, true);
           if (cloudPulled) break;
         } catch (err) {
           console.warn(`Cloud pull attempt ${attempt} warning:`, err);
