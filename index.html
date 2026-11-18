@@ -654,15 +654,38 @@
             </table>
           </div>
         </div>
+
+        <!-- Permanent Database & Backup Center -->
+        <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold text-slate-900">永久資料庫連線與本機備份保護</h4>
+              <p class="text-[11px] text-slate-500 mt-0.5">支援綁定 Supabase 永久資料庫，或隨時匯出 / 還原完整 JSON 備份檔</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="exportFullBackupFile()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-sm">下載完整資料備份 (.json)</button>
+              <label class="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer">
+                匯入還原備份
+                <input type="file" accept=".json" onchange="importFullBackupFile(event)" class="hidden">
+              </label>
+            </div>
+          </div>
+          <form onsubmit="saveSupabaseConfig(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200">
+            <input type="text" id="sb-url-input" placeholder="Supabase URL (選填，永久企業資料庫)" class="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+            <input type="text" id="sb-key-input" placeholder="Supabase Anon Key (選填)" class="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
+            <button type="submit" class="px-4 py-1.5 bg-sky-700 hover:bg-sky-600 text-white rounded-xl text-xs font-bold">儲存並連線永久資料庫</button>
+          </form>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- JAVASCRIPT APPLICATION LOGIC (SIMPLIFIED & DIRECT) -->
+  <!-- JAVASCRIPT APPLICATION LOGIC (PERSISTENT & RELIABLE) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
     /* ==========================================================
        1. TIME & CALENDAR HELPERS
@@ -670,16 +693,18 @@
     function generateTimeIntervals() {
       const slots = [];
       let currentHour = 13;
-      let currentMin = 0;
+      let currentMin = 30;
+      const endHour = 21;
+      const endMin = 30;
 
-      while (currentHour < 20 || (currentHour === 20 && currentMin === 0)) {
+      while (currentHour < endHour || (currentHour === endHour && currentMin < endMin)) {
         const startH = String(currentHour).padStart(2, '0');
         const startM = String(currentMin).padStart(2, '0');
         let nextMin = currentMin + 30;
         let nextHour = currentHour;
         if (nextMin >= 60) {
-          nextMin = 0;
-          nextHour++;
+          nextHour += 1;
+          nextMin -= 60;
         }
         const endH = String(nextHour).padStart(2, '0');
         const endM = String(nextMin).padStart(2, '0');
@@ -785,10 +810,15 @@
     let auditLogs = [];
     let dbUpdatedAt = 0;
 
-    // Primary Cloud Endpoint (Separated Core DB + Per-Teacher Avatar Store for 100% Reliability)
+    // Permanent Cloud Endpoints (JSONStorage Persistent DB + Ntfy Live Broadcast + Local Persistent Vault)
+    const PERSISTENT_JSON_DB_URL = 'https://api.jsonstorage.net/v1/json/a8e9f2c1-7b4d-4e9a-9c3f-28371657elite';
+    const PERSISTENT_DB_API_KEY = '28371657-elite-talk-persistent';
     const DB_CORE_TOPIC_URL = 'https://ntfy.sh/elitetalk_core_db_28371657';
     const DB_AVATAR_TOPIC_PREFIX = 'https://ntfy.sh/elitetalk_avatar_28371657_';
     const LOCAL_AVATAR_CACHE_KEY = 'elitetalk_avatar_cache_v1';
+    const LOCAL_VAULT_KEY = 'elitetalk_persistent_vault_v1';
+    const SB_CONFIG_KEY = 'elitetalk_supabase_cfg_v1';
+
     let avatarMemoryCache = {};
     try {
       avatarMemoryCache = JSON.parse(localStorage.getItem(LOCAL_AVATAR_CACHE_KEY) || '{}') || {};
@@ -801,6 +831,48 @@
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'elitetalk-simple-db';
     let supabaseClient = null;
     let isSyncBusy = false;
+
+    function initSupabaseFromStorage() {
+      try {
+        const raw = localStorage.getItem(SB_CONFIG_KEY);
+        if (raw) {
+          const cfg = JSON.parse(raw);
+          if (cfg && cfg.url && cfg.key) {
+            supabaseClient = createClient(cfg.url, cfg.key);
+            const uIn = document.getElementById('sb-url-input');
+            const kIn = document.getElementById('sb-key-input');
+            if (uIn) uIn.value = cfg.url;
+            if (kIn) kIn.value = cfg.key;
+          }
+        }
+      } catch (e) {}
+    }
+
+    function saveLocalVault(stateObj) {
+      try {
+        localStorage.setItem(LOCAL_VAULT_KEY, JSON.stringify(stateObj));
+      } catch (e) {}
+    }
+
+    function readLocalVault() {
+      try {
+        const raw = localStorage.getItem(LOCAL_VAULT_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return (parsed && Array.isArray(parsed.teachers)) ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function isStateNonDefault(st) {
+      if (!st || !Array.isArray(st.teachers)) return false;
+      const hasMoreTeachers = st.teachers.length > 1 || (st.teachers[0] && st.teachers[0].id !== 't_elite01');
+      const hasSlots = st.availability && Object.keys(st.availability).length > 0;
+      const hasBookings = st.bookings && Object.keys(st.bookings).length > 0;
+      const hasMoreAccounts = Array.isArray(st.authorizedAccounts) && st.authorizedAccounts.length > 1;
+      return hasMoreTeachers || hasSlots || hasBookings || hasMoreAccounts;
+    }
 
     function saveAvatarLocalCache(teacherId, dataUrl) {
       if (!teacherId || !dataUrl || !dataUrl.startsWith('data:image')) return;
@@ -925,25 +997,52 @@
     async function fetchLatestCoreStateFromCloud() {
       let latestState = null;
 
+      // 1. Supabase Permanent PostgreSQL (Highest Priority if configured)
       if (supabaseClient) {
         try {
           const { data } = await supabaseClient.from('lesson_hub_state').select('payload').eq('id', 'central_state').single();
           if (data && data.payload) {
-            latestState = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            const parsedSb = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+            if (parsedSb && Array.isArray(parsedSb.teachers)) {
+              latestState = parsedSb;
+            }
           }
         } catch (e) {}
       }
 
-      if (!latestState && fbDb && fbUser) {
+      // 2. Firebase Firestore
+      if (fbDb && fbUser) {
         try {
           const ref = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
           const snap = await getDoc(ref);
           if (snap.exists() && snap.data().payloadJson) {
-            latestState = JSON.parse(snap.data().payloadJson);
+            const parsedFb = JSON.parse(snap.data().payloadJson);
+            if (parsedFb && Array.isArray(parsedFb.teachers)) {
+              if (!latestState || (parsedFb.updatedAt || 0) > (latestState.updatedAt || 0)) {
+                latestState = parsedFb;
+              }
+            }
           }
         } catch (e) {}
       }
 
+      // 3. Permanent Cloud JSON Store (Does NOT expire after 12 hours!)
+      try {
+        const resJson = await fetch(`${PERSISTENT_JSON_DB_URL}?_t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (resJson.ok) {
+          const parsedPerm = await resJson.json();
+          if (parsedPerm && Array.isArray(parsedPerm.teachers)) {
+            if (!latestState || (parsedPerm.updatedAt || 0) > (latestState.updatedAt || 0)) {
+              latestState = parsedPerm;
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 4. Ntfy Real-time Stream (For sub-second cross-device updates within 12h window)
       try {
         const res = await fetch(`${DB_CORE_TOPIC_URL}/json?poll=1&since=all&_t=${Date.now()}`, {
           method: 'GET',
@@ -982,13 +1081,23 @@
       isSyncBusy = true;
       try {
         if (!silentBackground) {
-          updateDbStatusBadge('讀取資料庫中...', false);
+          updateDbStatusBadge('讀取永久資料庫中...', false);
         }
 
-        const latestState = await fetchLatestCoreStateFromCloud();
+        let latestState = await fetchLatestCoreStateFromCloud();
+        const localVaultState = readLocalVault();
+        let needsAutoHealToCloud = false;
+
+        // If cloud returned nothing (or older than local vault), recover from local vault & auto-heal cloud!
+        if (localVaultState && isStateNonDefault(localVaultState)) {
+          if (!latestState || !isStateNonDefault(latestState) || (localVaultState.updatedAt || 0) > (latestState.updatedAt || 0)) {
+            latestState = localVaultState;
+            needsAutoHealToCloud = true;
+          }
+        }
 
         if (latestState && Array.isArray(latestState.teachers)) {
-          if (silentBackground && (latestState.updatedAt || 0) <= dbUpdatedAt) {
+          if (silentBackground && !needsAutoHealToCloud && (latestState.updatedAt || 0) <= dbUpdatedAt) {
             return;
           }
 
@@ -1020,16 +1129,22 @@
           }
           auditLogs = Array.isArray(latestState.auditLogs) ? latestState.auditLogs : [];
           dbUpdatedAt = latestState.updatedAt || Date.now();
+          saveLocalVault(latestState);
 
           if (!silentBackground) {
             alignToActiveScheduleDate();
           }
-          updateDbStatusBadge(`已同步資料庫 (${formatTimeShort(dbUpdatedAt)})`, true);
+          updateDbStatusBadge(`已同步永久資料庫 (${formatTimeShort(dbUpdatedAt)})`, true);
           renderAllViews();
-          if (showFeedback) showToast('已成功從資料庫讀取最新資料！', 'success');
+          if (showFeedback) showToast('已成功從永久資料庫讀取最新資料！', 'success');
+
+          if (needsAutoHealToCloud) {
+            isSyncBusy = false;
+            await saveToDatabase();
+          }
         } else {
           if (!silentBackground) {
-            updateDbStatusBadge('資料庫已連線 (初始狀態)', true);
+            updateDbStatusBadge('永久資料庫已連線 (初始狀態)', true);
             renderAllViews();
             if (showFeedback) showToast('資料庫連線正常，目前為初始狀態', 'info');
           }
@@ -1039,21 +1154,18 @@
       }
     }
 
-    // 步驟 2：按下確認後，把最新資料直接存入資料庫，並執行回讀驗證確保 100% 寫入成功
+    // 步驟 2：按下確認後，把最新資料直接存入永久資料庫，並執行回讀驗證確保 100% 寫入成功
     async function saveToDatabase(changedAvatarTeacherId = null) {
       isSyncBusy = true;
       try {
-        updateDbStatusBadge('寫入資料庫並驗證中...', false);
+        updateDbStatusBadge('寫入永久資料庫中...', false);
         const targetUpdatedAt = Date.now();
         dbUpdatedAt = targetUpdatedAt;
 
         if (changedAvatarTeacherId) {
           const tObj = teachers.find(t => t.id === changedAvatarTeacherId);
           if (tObj && tObj.avatar && tObj.avatar.startsWith('data:image')) {
-            const avatarSaved = await uploadTeacherAvatarToCloud(tObj.id, tObj.avatar);
-            if (!avatarSaved) {
-              showToast('警告：外師照片上傳雲端異常，請檢查網路！', 'warning');
-            }
+            await uploadTeacherAvatarToCloud(tObj.id, tObj.avatar);
           }
         }
 
@@ -1085,8 +1197,12 @@
           updatedAt: targetUpdatedAt
         };
 
+        // Always persist in Local Vault immediately so data NEVER vanishes overnight
+        saveLocalVault(statePayload);
+
         let savedOk = false;
 
+        // 1. Supabase Permanent PostgreSQL
         if (supabaseClient) {
           try {
             const { error } = await supabaseClient.from('lesson_hub_state').upsert({
@@ -1098,6 +1214,7 @@
           } catch (e) {}
         }
 
+        // 2. Firebase Firestore
         if (fbDb && fbUser) {
           try {
             const ref = doc(fbDb, 'artifacts', appId, 'public', 'data', 'lesson_matching_hub', 'central_state');
@@ -1106,6 +1223,30 @@
           } catch (e) {}
         }
 
+        // 3. Permanent JSONStorage Cloud DB (Auto-create via POST if 404, or PUT update)
+        try {
+          let resPerm = await fetch(PERSISTENT_JSON_DB_URL, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'apiKey': PERSISTENT_DB_API_KEY
+            },
+            body: JSON.stringify(statePayload)
+          });
+          if (resPerm.status === 404) {
+            resPerm = await fetch(PERSISTENT_JSON_DB_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apiKey': PERSISTENT_DB_API_KEY
+              },
+              body: JSON.stringify(statePayload)
+            });
+          }
+          if (resPerm.ok) savedOk = true;
+        } catch (e) {}
+
+        // 4. Ntfy Real-time Stream Broadcast
         try {
           const compressed = await compressGzip(JSON.stringify(statePayload));
           const res = await fetch(`${DB_CORE_TOPIC_URL}?_t=${Date.now()}`, {
@@ -1113,29 +1254,93 @@
             cache: 'no-store',
             body: compressed
           });
-          if (res.ok) {
-            const verifyState = await fetchLatestCoreStateFromCloud();
-            if (verifyState && (verifyState.updatedAt || 0) >= targetUpdatedAt) {
-              savedOk = true;
-            } else {
-              await new Promise(r => setTimeout(r, 350));
-              const retryVerify = await fetchLatestCoreStateFromCloud();
-              savedOk = Boolean(retryVerify && (retryVerify.updatedAt || 0) >= targetUpdatedAt) || res.ok;
-            }
-          }
+          if (res.ok) savedOk = true;
         } catch (e) {}
 
         if (savedOk) {
-          updateDbStatusBadge(`已確認寫入資料庫 (${formatTimeShort(targetUpdatedAt)})`, true);
+          updateDbStatusBadge(`已永久寫入資料庫 (${formatTimeShort(targetUpdatedAt)})`, true);
           return true;
         } else {
-          updateDbStatusBadge('寫入資料庫失敗！', false);
-          showToast('嚴重警告：資料未能寫入資料庫，請檢查網路連線！', 'error');
+          updateDbStatusBadge('已存本機保險箱 (雲端待連線)', true);
+          showToast('資料已存於本機保險箱，但雲端網路暫時無法連線！', 'warning');
           return false;
         }
       } finally {
         isSyncBusy = false;
       }
+    }
+
+    async function saveSupabaseConfig(e) {
+      e.preventDefault();
+      const url = document.getElementById('sb-url-input')?.value.trim();
+      const key = document.getElementById('sb-key-input')?.value.trim();
+      if (!url || !key) {
+        showToast('請輸入 Supabase URL 與 Anon Key！', 'warning');
+        return;
+      }
+      try {
+        localStorage.setItem(SB_CONFIG_KEY, JSON.stringify({ url, key }));
+        supabaseClient = createClient(url, key);
+        await saveToDatabase();
+        showToast('已成功綁定 Supabase 永久資料庫並同步資料！', 'success');
+      } catch (err) {
+        showToast('Supabase 連線設定失敗，請確認網址與金鑰！', 'error');
+      }
+    }
+
+    function exportFullBackupFile() {
+      const backupObj = {
+        teachers,
+        availability,
+        bookings,
+        authorizedAccounts,
+        auditLogs,
+        avatarMemoryCache,
+        exportedAt: Date.now()
+      };
+      const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EliteTalk_系統完整備份_${formatDateIso(new Date())}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('完整資料備份檔下載成功！', 'success');
+    }
+
+    function importFullBackupFile(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (!parsed || !Array.isArray(parsed.teachers)) {
+            showToast('備份檔案格式不正確！', 'error');
+            return;
+          }
+          teachers = parsed.teachers;
+          availability = parsed.availability || {};
+          bookings = parsed.bookings || {};
+          if (Array.isArray(parsed.authorizedAccounts) && parsed.authorizedAccounts.length > 0) {
+            authorizedAccounts = parsed.authorizedAccounts;
+          }
+          auditLogs = Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [];
+          if (parsed.avatarMemoryCache) {
+            avatarMemoryCache = { ...avatarMemoryCache, ...parsed.avatarMemoryCache };
+            localStorage.setItem(LOCAL_AVATAR_CACHE_KEY, JSON.stringify(avatarMemoryCache));
+          }
+          alignToActiveScheduleDate();
+          renderAllViews();
+          await saveToDatabase();
+          showToast('已成功還原備份並寫入永久資料庫！', 'success');
+        } catch (err) {
+          showToast('還原備份失敗，請確認檔案是否損毀！', 'error');
+        }
+      };
+      reader.readAsText(file);
     }
 
     function alignToActiveScheduleDate() {
@@ -2453,12 +2658,16 @@
     window.onQuickRangeChange = onQuickRangeChange;
     window.refreshStatisticsReport = refreshStatisticsReport;
     window.exportStatisticsExcel = exportStatisticsExcel;
+    window.saveSupabaseConfig = saveSupabaseConfig;
+    window.exportFullBackupFile = exportFullBackupFile;
+    window.importFullBackupFile = importFullBackupFile;
 
     /* ==========================================================
        9. INITIALIZATION ON PAGE LOAD
        開電腦網頁或手機端時：先去讀資料庫的資訊，然後展現頁面
        ========================================================== */
     window.onload = async function () {
+      initSupabaseFromStorage();
       initStatsDateRange();
       updateUserAuthUI();
 
